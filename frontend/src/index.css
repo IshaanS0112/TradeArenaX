@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-ink text-slate-200 antialiased;
+}
+
+/* Numbers in a trading UI have to line up vertically to be scannable, so every
+   figure is rendered with tabular monospace digits. */
+.num {
+  @apply font-mono tabular-nums;
+}

@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: trade
+      POSTGRES_PASSWORD: trade
+      POSTGRES_DB: tradearenax
+    ports:
+      - "5432:5432"
+    volumes:
+      - trade_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The backend creates its schema on startup, so it must not start until
+      # Postgres is actually accepting connections - not merely "container up".
+      test: ["CMD-SHELL", "pg_isready -U trade -d tradearenax"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://trade:trade@db:5432/tradearenax
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      # Every value below changes a simulation result and is persisted with each
+      # run in simulations.engine_config, so a stored Sharpe stays checkable.
+      TICK_SIZE: "0.01"
+      CAPITAL_BASE: "100000.0"
+      STEPS_PER_YEAR: "98280"
+      MAKER_FEE_BPS: "0.0"
+      TAKER_FEE_BPS: "0.0"
+      MAX_SIMULATION_STEPS: "20000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Not started by `docker compose up` - it sits behind a profile so it only runs
+  # when asked for explicitly:
+  #     docker compose run --rm --build tests
+  # Builds the Dockerfile's `test` stage, which adds pytest and the suite on top
+  # of the exact production image. No database service needed: conftest.py points
+  # DATABASE_URL at a temp-directory SQLite file.
+  tests:
+    profiles: ["test"]
+    build:
+      context: ./backend
+      target: test
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Empty on purpose: the app falls back to /api on its own origin and nginx
+        # proxies that to the backend, so the browser never issues a cross-origin
+        # request. client.ts must use `||` and not `??` to read this - an empty
+        # build arg is an empty string, not undefined, so `??` would keep it and
+        # send every request to the SPA catch-all instead of the API.
+        VITE_API_BASE_URL: ""
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  trade_pgdata:
