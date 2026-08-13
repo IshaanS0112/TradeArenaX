@@ -22,6 +22,11 @@ dist-ssr/
 *.local
 .vite/
 
+# TypeScript incremental build cache. Written by `tsc -b`, contains absolute
+# paths and timestamps from the machine that built it, and is regenerated on
+# every build - so committing it produces pointless diffs and merge conflicts.
+*.tsbuildinfo
+
 # Local databases produced by the test suite
 *.db
 *.sqlite

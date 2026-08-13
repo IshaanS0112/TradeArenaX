@@ -67,10 +67,14 @@ echo "==> About to commit these files:"
 git diff --cached --name-only | wc -l | xargs echo "    file count:"
 git diff --cached --name-only | xargs du -ch 2>/dev/null | tail -1 | xargs echo "    total size:"
 
-# Fail loudly rather than pushing 80 MB of dependencies.
-if git diff --cached --name-only | grep -qE 'node_modules|\.venv/|__pycache__|\.env$'; then
+# Fail loudly rather than pushing dependencies, caches or secrets. The build
+# steps above run before staging, so anything they generate (dist/, tsbuildinfo,
+# .pytest_cache) exists by the time git looks - which is exactly how
+# frontend/tsconfig.tsbuildinfo got committed the first time this script ran.
+JUNK='node_modules|\.venv/|__pycache__|\.pytest_cache|\.tsbuildinfo|/dist/|\.env$|\.db$'
+if git diff --cached --name-only | grep -qE "$JUNK"; then
   echo "ERROR: build artefacts or secrets are staged. Check .gitignore." >&2
-  git diff --cached --name-only | grep -E 'node_modules|\.venv/|__pycache__|\.env$' >&2
+  git diff --cached --name-only | grep -E "$JUNK" >&2
   exit 1
 fi
 
