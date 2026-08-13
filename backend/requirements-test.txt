@@ -1,0 +1,24 @@
+# Minimal set needed to run the test suite locally.
+#
+# Deliberately does NOT include psycopg2-binary. The suite runs entirely on
+# SQLite - conftest.py points DATABASE_URL at a temp-directory file, and the
+# models declare JSONB/UUID as dialect variants so the real app runs unmodified
+# on either backend. Requiring a PostgreSQL driver to run a SQLite test suite is
+# a dependency that buys nothing and costs a source build: psycopg2-binary ships
+# no wheel for the newest CPython releases, so pip falls back to compiling it,
+# which needs PostgreSQL's pg_config on the machine.
+#
+# CI and Docker still install requirements-dev.txt (the full production set,
+# psycopg2 included) on Python 3.12, so the deployed dependency graph is exercised
+# on every push - just not on your laptop when all you want is `pytest`.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+pydantic==2.10.4
+pydantic-settings==2.7.0
+numpy==2.2.1
+python-dotenv==1.0.1
+
+pytest==8.3.4
+httpx==0.28.1
