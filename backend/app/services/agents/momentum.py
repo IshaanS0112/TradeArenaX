@@ -4,7 +4,7 @@
     price_change >  threshold  ->  BUY,  size scaled by trend strength
     price_change < -threshold  ->  SELL
 
-Two properties worth naming, because they are what an interviewer will probe:
+Two properties are worth naming, because both are easy to get wrong:
 
 **It trades the traded price, not the reference price.** The signal is computed
 from the sequence of executed trade prices - what this agent could actually have
