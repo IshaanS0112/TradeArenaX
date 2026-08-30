@@ -80,7 +80,7 @@ No database, no HTTP layer — the fastest way to check that a change to the
 matching engine or the agents has not broken the economics:
 
 ```bash
-cd backend && python scripts/demo_run.py --steps 1000 --shock-step 500 --shock-pct -8
+cd backend && python backend/scripts/demo_run.py --steps 1000 --shock-step 500 --shock-pct -8
 ```
 
 ```

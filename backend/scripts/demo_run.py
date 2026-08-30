@@ -5,7 +5,7 @@ No database, no HTTP: this drives the engine directly, which is the fastest way
 to check that a change to the matching engine or the agents did not quietly
 break the economics.
 
-    cd backend && python scripts/demo_run.py --steps 800 --shock-step 400
+    cd backend && python backend/scripts/demo_run.py --steps 800 --shock-step 400
 """
 
 from __future__ import annotations

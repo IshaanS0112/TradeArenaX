@@ -31,7 +31,7 @@ jobs:
         # behave correctly but produce zero trades when run together. The script
         # asserts nothing itself, so the grep is what makes this a real check.
         run: |
-          python scripts/demo_run.py --steps 400 --shock-step 200 | tee /tmp/run.txt
+          python backend/scripts/demo_run.py --steps 400 --shock-step 200 | tee /tmp/run.txt
           grep -q "Trades: 0" /tmp/run.txt && { echo "::error::simulation produced no trades"; exit 1; } || true
 
   frontend:
