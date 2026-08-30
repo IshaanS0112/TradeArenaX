@@ -334,4 +334,8 @@ per-agent propagation delay · queue-position analytics for the maker.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Not investment advice. Synthetic data. No live trading.
+MIT — see [LICENSE](LICENSE).
+
+**Not investment advice.** This is a research and education tool running on
+synthetic data, with no connection to any market data feed, exchange or broker.
+See [DISCLAIMER.md](DISCLAIMER.md).
