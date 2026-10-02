@@ -5,7 +5,7 @@
 [![React 18](https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-210%20passing-brightgreen)](backend/tests)
+[![Tests](https://img.shields.io/badge/tests-540%20passing-brightgreen)](backend/tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Market-making and trading strategy simulation on a real limit order book.**
@@ -100,7 +100,7 @@ PnL conservation check: sum(total_pnl) + fees = -0.0000000000
 ### Tests
 
 ```bash
-cd backend && python -m pytest          # 210 tests
+cd backend && python -m pytest          # 540 tests
 docker compose run --rm --build tests   # or, in a container
 
 cd frontend && npm run typecheck && npm run build

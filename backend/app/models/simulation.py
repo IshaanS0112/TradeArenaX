@@ -9,9 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base, JsonBlob, UUIDStr, new_uuid, utc_now
 
 if TYPE_CHECKING:  # pragma: no cover
-    # SQLAlchemy resolves the related class through its own registry by name, so
-    # no runtime import is needed here - and importing it at runtime would make
-    # simulation.py and agent.py circular.
+    # SQLAlchemy resolves the related class through its own registry by name.
     from app.models.agent import Agent
 
 
@@ -21,15 +19,18 @@ class Simulation(Base):
     id: Mapped[str] = mapped_column(UUIDStr, primary_key=True, default=new_uuid)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     duration_steps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    # The resolved parameter set, not the request body: defaults are filled in
-    # before it is stored, so a run can be reproduced from the row alone.
+    # The resolved parameter set, not the request body: defaults are filled.
     price_process_config: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
     volatility_shock_config: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
-    # Engine-level constants in force for this run (tick size, fees, capital
-    # base, steps per year). Without these the stored Sharpe cannot be checked.
+    # Engine-level constants in force for this run (tick size, fees, capital.
     engine_config: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
     run_summary: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="CREATED", nullable=False)
+    # : Set when this run is one path of an ensemble.
+    ensemble_id: Mapped[str | None] = mapped_column(
+        UUIDStr, ForeignKey("ensembles.id", ondelete="CASCADE"), nullable=True
+    )
+    path_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())
 
     agents: Mapped[list["Agent"]] = relationship(
@@ -41,13 +42,7 @@ class Simulation(Base):
 
 
 class SimulationStep(Base):
-    """Per-step market state. The series behind every chart in the dashboard.
-
-    Not in the original schema sketch, and added deliberately: without it the
-    order-book chart and the "what happened at the shock" narrative have to be
-    reconstructed from the trade log, which cannot show a step where the book
-    moved but nothing traded - which is most steps.
-    """
+    """Per-step market state."""
 
     __tablename__ = "simulation_steps"
     __table_args__ = (Index("ix_simulation_steps_sim_step", "simulation_id", "step"),)
@@ -58,8 +53,7 @@ class SimulationStep(Base):
     )
     step: Mapped[int] = mapped_column(Integer, nullable=False)
     reference_price: Mapped[float] = mapped_column(Float, nullable=False)
-    # mid_price is null whenever a side of the book was empty; mark_price is the
-    # value actually used to mark inventory that step and is never null.
+    # mid_price is null whenever a side of the book was empty; mark_price.
     mid_price: Mapped[float | None] = mapped_column(Float)
     mark_price: Mapped[float | None] = mapped_column(Float)
     best_bid: Mapped[float | None] = mapped_column(Float)

@@ -1,3 +1,3 @@
-from app.routers import simulations
+from app.routers import ensembles, simulations, sweeps
 
-__all__ = ["simulations"]
+__all__ = ["ensembles", "simulations", "sweeps"]

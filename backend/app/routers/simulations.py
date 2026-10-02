@@ -19,15 +19,25 @@ from app.schemas import (
     AgentRead,
     ComparisonResponse,
     ComparisonRow,
+    GreeksAttributionResponse,
+    LatencyRaceRow,
+    LatencyRacesResponse,
+    LiquiditySurfaceResponse,
+    MicropriceResponse,
+    MicrostructureResponse,
     OrderBookSnapshot,
     RunRequest,
     RunSummary,
     SimulationCreate,
     SimulationRead,
+    SpreadRow,
 )
 from app.services import run_service
 from app.services.agents import default_config
-from app.services.book_replay import replay_book
+from app.services.book_replay import replay_book, replay_book_history
+from app.services.latency import STEP_DURATION_US, LatencyProfile
+from app.services.microprice import imbalance as queue_imbalance
+from app.services.microprice import weighted_microprice
 
 logger = logging.getLogger("tradearenax.api")
 router = APIRouter(prefix="/simulations", tags=["simulations"])
@@ -101,9 +111,9 @@ def add_agent(simulation_id: str, payload: AgentCreate, db: Session = Depends(ge
 
     try:
         resolved = run_service.resolve_agent_config(payload.agent_type, payload.config)
+        latency = LatencyProfile.from_config(payload.latency).as_dict()
     except ValueError as exc:
-        # A misspelled config key is a 422, not a silently ignored default: a run
-        # whose parameters are not what the caller asked for is not reproducible.
+        # A misspelled config key is a 422, not a silently ignored default: a run whose parameters.
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
     row = AgentRow(
@@ -111,6 +121,7 @@ def add_agent(simulation_id: str, payload: AgentCreate, db: Session = Depends(ge
         name=payload.name or f"{payload.agent_type}-{existing + 1}",
         agent_type=str(payload.agent_type),
         config=resolved,
+        latency_config=latency,
     )
     db.add(row)
     # Results from a previous run no longer describe this agent set.
@@ -137,13 +148,7 @@ def list_agents(simulation_id: str, db: Session = Depends(get_db)):
 # ------------------------------------------------------------------------ run
 @router.post("/{simulation_id}/run", response_model=RunSummary)
 def run(simulation_id: str, payload: RunRequest, db: Session = Depends(get_db)):
-    """Run N steps.
-
-    Declared ``def`` rather than ``async def`` deliberately: the simulation loop
-    is CPU-bound Python, so FastAPI runs it in a threadpool and the event loop
-    stays free to serve other requests. An ``async def`` here would block every
-    other client for the duration of the run.
-    """
+    """Run N steps."""
     sim = _get_simulation(db, simulation_id)
     settings = get_settings()
 
@@ -196,11 +201,7 @@ def order_book_snapshot(
     levels: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    """The book, rebuilt from the persisted order stream.
-
-    See services/book_replay.py: the reconstruction is exact, not an estimate,
-    because the stored stream includes submission sequence and cancel step.
-    """
+    """The book, rebuilt from the persisted order stream."""
     sim = _get_simulation(db, simulation_id)
     _require_completed(sim)
 
@@ -308,28 +309,200 @@ def comparison(simulation_id: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/{simulation_id}/liquidity-surface", response_model=LiquiditySurfaceResponse)
+def liquidity_surface(
+    simulation_id: str,
+    levels: int = Query(40, ge=4, le=200, description="Ticks either side of the mid"),
+    stride: int = Query(
+        0,
+        ge=0,
+        le=200,
+        description="Capture every Nth step. 0 picks a stride that caps the grid.",
+    ),
+    max_frames: int = Query(400, ge=50, le=2000),
+    db: Session = Depends(get_db),
+):
+    """Resting depth over time, as a packed grid for the heatmap and 3D surface."""
+    sim = _get_simulation(db, simulation_id)
+    _require_completed(sim)
+
+    resolved_stride = stride or max(1, -(-sim.duration_steps // max_frames))
+
+    history = replay_book_history(
+        db,
+        simulation_id=sim.id,
+        tick_size=float(sim.engine_config.get("tick_size", get_settings().tick_size)),
+        levels=levels,
+        stride=resolved_stride,
+    )
+    return LiquiditySurfaceResponse(
+        simulation_id=sim.id,
+        steps=history.steps,
+        mid=history.mid,
+        best_bid=history.best_bid,
+        best_ask=history.best_ask,
+        grid=history.grid,
+        levels=history.levels,
+        width=history.width,
+        stride=history.stride,
+        tick_size=history.tick_size,
+        shock_steps=[s["step"] for s in sim.volatility_shock_config.get("shocks", [])],
+    )
+
+
+@router.get("/{simulation_id}/microstructure", response_model=MicrostructureResponse)
+def microstructure(simulation_id: str, db: Session = Depends(get_db)):
+    """Where each agent's money came from: realised spread against price impact."""
+    sim = _get_simulation(db, simulation_id)
+    _require_completed(sim)
+
+    stored = (sim.run_summary or {}).get("microstructure")
+    if not stored:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this run predates the spread decomposition - re-run it to measure "
+            "adverse selection",
+        )
+
+    names = {a.id: a.name for a in sim.agents}
+    by_agent = {
+        horizon: [SpreadRow(**{**row, "name": names.get(row["agent_id"])}) for row in rows]
+        for horizon, rows in stored["by_agent"].items()
+    }
+    return MicrostructureResponse(
+        simulation_id=sim.id,
+        horizons=stored["horizons"],
+        default_horizon_steps=stored["default_horizon_steps"],
+        market=stored["market"],
+        by_agent=by_agent,
+    )
+
+
+@router.get("/{simulation_id}/greeks/attribution", response_model=GreeksAttributionResponse)
+def greeks_attribution(simulation_id: str, db: Session = Depends(get_db)):
+    """Gamma, vega, theta and hedging slippage for every options maker."""
+    sim = _get_simulation(db, simulation_id)
+    _require_completed(sim)
+
+    stored = (sim.run_summary or {}).get("greeks") or {}
+    if not stored:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this run has no options maker in it, so there is no book to attribute",
+        )
+    return GreeksAttributionResponse(
+        simulation_id=sim.id,
+        agents=stored,
+        names={a.id: a.name for a in sim.agents},
+    )
+
+
+@router.get("/{simulation_id}/microprice", response_model=MicropriceResponse)
+def microprice(
+    simulation_id: str,
+    stride: int = Query(1, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Microprice against mid, and how well each forecasts the next mid."""
+    sim = _get_simulation(db, simulation_id)
+    _require_completed(sim)
+
+    history = replay_book_history(
+        db,
+        simulation_id=sim.id,
+        tick_size=float(sim.engine_config.get("tick_size", get_settings().tick_size)),
+        levels=4,
+        stride=stride,
+    )
+
+    micro = [
+        weighted_microprice(bid, ask, bid_qty, ask_qty)
+        for bid, ask, bid_qty, ask_qty in zip(
+            history.best_bid, history.best_ask, history.bid_quantity, history.ask_quantity
+        )
+    ]
+    imbalances = [
+        queue_imbalance(bid_qty, ask_qty)
+        for bid_qty, ask_qty in zip(history.bid_quantity, history.ask_quantity)
+    ]
+
+    return MicropriceResponse(
+        simulation_id=sim.id,
+        steps=history.steps,
+        mid=history.mid,
+        microprice=micro,
+        imbalance=imbalances,
+        bid_quantity=history.bid_quantity,
+        ask_quantity=history.ask_quantity,
+        forecast=_forecast_errors(history.mid, micro),
+    )
+
+
+def _forecast_errors(
+    mid: list[float | None], micro: list[float | None]
+) -> dict[str, float | None]:
+    """One-step-ahead RMSE for each estimator, over the steps both exist."""
+    mid_errors: list[float] = []
+    micro_errors: list[float] = []
+    for index in range(len(mid) - 1):
+        future = mid[index + 1]
+        if future is None:
+            continue
+        if mid[index] is not None:
+            mid_errors.append((future - mid[index]) ** 2)
+        if micro[index] is not None:
+            micro_errors.append((future - micro[index]) ** 2)
+
+    def rmse(errors: list[float]) -> float | None:
+        return (sum(errors) / len(errors)) ** 0.5 if errors else None
+
+    return {
+        "mid_rmse": rmse(mid_errors),
+        "microprice_rmse": rmse(micro_errors),
+        "observations": float(len(mid_errors)),
+    }
+
+
+@router.get("/{simulation_id}/latency-races", response_model=LatencyRacesResponse)
+def latency_races(simulation_id: str, db: Session = Depends(get_db)):
+    """Fills that beat their own maker's cancel to the matching engine."""
+    sim = _get_simulation(db, simulation_id)
+    _require_completed(sim)
+
+    summary = (sim.run_summary or {}).get("latency") or {}
+    races = (sim.run_summary or {}).get("latency_races") or []
+    names = {a.id: a.name for a in sim.agents}
+
+    return LatencyRacesResponse(
+        simulation_id=sim.id,
+        step_duration_us=summary.get("step_duration_us", STEP_DURATION_US),
+        profiles=summary.get("profiles", {}),
+        adverse_fills=summary.get("adverse_fills", {}),
+        races_recorded=summary.get("races_recorded", len(races)),
+        races_capped_at=summary.get("races_capped_at", len(races)),
+        races=[
+            LatencyRaceRow(
+                **race,
+                maker_name=names.get(race["maker_agent_id"]),
+                taker_name=names.get(race["taker_agent_id"]),
+            )
+            for race in races
+        ],
+    )
+
+
 meta_router = APIRouter(prefix="/meta", tags=["meta"])
 
 
 @meta_router.get("/agent-defaults")
 def agent_defaults() -> dict[str, dict]:
-    """Every agent archetype's full parameter set with its default value.
-
-    The dashboard builds its config forms from this, so a parameter added to an
-    agent shows up in the UI without a frontend change - and, more importantly,
-    a reader can see the entire tunable surface of each strategy in one place.
-    """
+    """Every agent archetype's full parameter set with its default value."""
     return {str(t): default_config(t) for t in AgentType}
 
 
 @meta_router.get("/engine-config")
 def engine_config() -> dict:
-    """The engine constants in force, and the formulas that consume them.
-
-    Exposed as an endpoint because the honest claim this project makes - that the
-    metrics are computed rather than asserted - is only checkable if the
-    parameters behind them are visible without reading the source.
-    """
+    """The engine constants in force, and the formulas that consume them."""
     settings = get_settings()
     return {
         "engine": run_service.engine_config_snapshot(settings),

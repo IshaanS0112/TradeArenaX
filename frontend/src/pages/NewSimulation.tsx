@@ -30,8 +30,7 @@ export default function NewSimulation() {
   const [selected, setSelected] = useState<Set<AgentType>>(new Set(ALL_TYPES));
 
   useEffect(() => {
-    // Agent parameter defaults come from the API so this form cannot drift out of
-    // sync with the engine's actual tunables.
+    // Agent parameter defaults come from the API so this form cannot drift out of sync.
     void api.agentDefaults().then(setDefaults).catch(() => setDefaults(null));
   }, []);
 
@@ -79,7 +78,7 @@ export default function NewSimulation() {
   return (
     <form onSubmit={submit} className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
+        <h1 className="text-2xl font-semibold tracking-tight text-primary">
           New simulation
         </h1>
         <p className="mt-1 text-sm text-muted">
@@ -162,7 +161,7 @@ export default function NewSimulation() {
         )}
 
         {shockPastEnd && (
-          <p className="mt-3 text-xs text-caution">
+          <p className="mt-3 text-xs text-warn">
             Step {shockStep} is past the end of a {steps}-step run, so the shock
             would never fire. The API rejects this.
           </p>
@@ -211,7 +210,7 @@ export default function NewSimulation() {
         </div>
 
         {noMaker && (
-          <p className="mt-3 text-xs text-caution">
+          <p className="mt-3 text-xs text-warn">
             Without a market maker nothing provides liquidity: the directional
             agents can only take it, so the book stays empty and almost nothing
             trades.
@@ -222,7 +221,7 @@ export default function NewSimulation() {
       <button
         type="submit"
         disabled={busy || shockPastEnd || selected.size === 0}
-        className="rounded bg-accent px-5 py-2 text-sm font-medium text-ink hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="rounded bg-accent px-5 py-2 text-sm font-medium text-base hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {busy ? "Running…" : "Create and run"}
       </button>
@@ -231,7 +230,7 @@ export default function NewSimulation() {
 }
 
 const inputClass =
-  "w-full rounded border border-edge bg-ink px-2 py-1.5 text-sm text-slate-100 focus:border-accent focus:outline-none";
+  "w-full rounded border border-edge bg-base px-2 py-1.5 text-sm text-primary focus:border-accent focus:outline-none";
 
 function Field({
   label,

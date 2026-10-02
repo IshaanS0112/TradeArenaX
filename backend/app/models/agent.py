@@ -21,10 +21,10 @@ class Agent(Base):
     )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     agent_type: Mapped[str] = mapped_column(String(30), nullable=False)
-    # The *resolved* config, defaults included - see Agent.resolve_config. The
-    # request body is not stored, because a config that relied on a default
-    # cannot be reproduced once the default changes.
+    # The *resolved* config, defaults included - see Agent.resolve_config.
     config: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
+    # Per-agent latency, in simulated microseconds: latency_in (market data.
+    latency_config: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
     final_metrics: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
     risk_flags: Mapped[list] = mapped_column(JsonBlob, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())

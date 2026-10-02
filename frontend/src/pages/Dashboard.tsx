@@ -32,7 +32,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-100">
+          <h1 className="text-2xl font-semibold tracking-tight text-primary">
             Simulations
           </h1>
           <p className="mt-1 text-sm text-muted">
@@ -42,7 +42,7 @@ export default function Dashboard() {
         </div>
         <Link
           to="/new"
-          className="ml-auto rounded bg-accent px-4 py-2 text-sm font-medium text-ink hover:bg-accent/90"
+          className="ml-auto rounded bg-accent px-4 py-2 text-sm font-medium text-base hover:bg-accent/90"
         >
           New simulation
         </Link>
@@ -73,7 +73,7 @@ export default function Dashboard() {
                   <div className="min-w-0 flex-1">
                     <Link
                       to={`/simulations/${sim.id}`}
-                      className="text-sm font-medium text-slate-100 hover:text-accent"
+                      className="text-sm font-medium text-primary hover:text-accent"
                     >
                       {sim.name}
                     </Link>

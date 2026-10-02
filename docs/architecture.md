@@ -325,3 +325,119 @@ what surfaced them.
 **`create_all` is a decision with an expiry date.** It is right while the schema is
 append-only and wrong the first time a column changes shape. Recorded here so the
 next person does not have to infer whether it was considered.
+
+**Float dust survives at the bottom of a price level.** A level's cached total is
+maintained by subtraction as orders fill and cancel, and repeated subtraction does
+not land on exactly zero: ten shares taken in nine slices leaves `1.78e-15` behind.
+That residue is larger than zero, so the level survived pruning and `best_bid`
+reported a price at which nothing rested — a phantom touch that read as a crossed
+book and aborted the run. It only showed up with five market makers quoting through
+a shock, because a thin book rarely drains a level by partial fills alone; the
+three-agent suite never came close. Two lessons. The invariant was right and the
+arithmetic was wrong, which is the good way round. And a quantity that can only
+ever be zero or at least `min_order_quantity` should be tested against an epsilon,
+not against zero — `_QTY_EPSILON` in `order_book.py` now snaps the residue away, and
+`test_drained_level_leaves_no_phantom_touch` reproduces the exact nine-slice case.
+
+**A dashboard panel that asks per step is quadratic.** The liquidity heatmap and the
+3D surface need the book at every step, and the obvious route — call
+`/order-book/snapshot` once per step — replays the whole order stream from the
+beginning each time. `GET /simulations/{id}/liquidity-surface` replays once and
+snapshots as it goes, returning a packed `(step x relative price level)` grid of
+signed quantities. Packed matters as much as linear: the same 400 x 81 grid as JSON
+objects per level is tens of megabytes, and the browser spends longer parsing it
+than drawing it.
+
+---
+
+## What the V2/V3 layers added, and what each one is for
+
+**The engine is now a discrete-event simulation** (`services/event_engine.py`).
+Every action - price tick, agent wake, order arrival, cancel arrival, fill
+notification, step close - is an event on one priority queue ordered by
+`(timestamp_us, sequence)`. The step loop in `services/simulation_engine.py` is
+*not* deleted: it is the reference implementation, and
+`test_zero_latency_reproduces_the_step_engine_exactly` runs both on the same
+seed and compares step records, fills, orders, PnL and inventory. Without that
+test, a difference in any later result is ambiguous between "latency did
+something" and "the rewrite has a bug".
+
+The sequence number is a *tuple*, not an integer, and that detail is what makes
+the equivalence hold. A global counter allocated at scheduling time puts an
+order scheduled by agent A's wake *after* agent B's wake at the same timestamp,
+so B would decide before A's orders reached the book. Events instead carry
+their causal path - A's wake is `(step, 1, 0)`, the orders it sends are
+`(step, 1, 0, 0)` and `(step, 1, 0, 1)` - and tuple comparison resolves a
+cause's effects before the next independent event at the same instant.
+
+**Latency is three numbers per agent**, in simulated microseconds: `latency_in`
+(how stale the data it decides on is), `latency_out` (how long its orders take
+to arrive) and `latency_jitter`. Market data is published once per step, so
+`latency_in` is quantised to whole publications; `latency_out` is continuous and
+is what produces races. A cancel issued before an aggressive order can still
+arrive after it, and the quote gets hit - recorded as a `LatencyRace` with the
+full timeline and served by `GET /simulations/{id}/latency-races`.
+
+**Adverse selection is measured, not inferred** (`services/microstructure.py`).
+Per trade: `effective = D·(P − M_t)`, `realised = D·(P − M_{t+Δ})`,
+`impact = D·(M_{t+Δ} − M_t)`, with `effective = realised + impact` asserted in
+the tests the way PnL conservation is. Quoted from the passive side, so a
+positive impact is adverse selection against the maker. The horizon Δ is stored
+next to every number because a realised spread without its horizon cannot be
+interpreted.
+
+**Ensembles** (`services/ensembles.py`) run N seeded paths in a process pool and
+report distributions rather than point estimates: percentiles, histograms,
+fraction-positive, an IID bootstrap CI across paths (they are independent by
+construction) and a stationary-bootstrap CI *within* the median path (its steps
+are not). Lo's analytic SE is reported next to the bootstrap and the two are
+flagged when they disagree by more than 25%, because that disagreement is itself
+a statement about autocorrelation.
+
+**Sweeps never report a maximum alone** (`services/sweeps.py`,
+`services/statistics.py`). Every cell carries a deflated Sharpe (Bailey &
+López de Prado, corrected for trial count, trial dispersion, skew and kurtosis),
+the grid carries a probability of backtest overfitting from combinatorially
+symmetric cross-validation, and the response includes the *robust centroid* -
+the centre of the top decile - next to the best cell. Purged k-fold with an
+embargo is available for any selection that needs it.
+
+**The derivatives layer** prices from first principles
+(`services/derivatives/`): Black-Scholes with analytic Greeks, guarded at
+`tau → 0` and `sigma → 0` where `d1` is undefined; implied volatility by Brent
+on a bracketed interval rather than Newton, because vega collapses in the wings
+where the iteration would diverge; SVI smiles with butterfly and calendar
+arbitrage *reported with their location and magnitude* rather than smoothed
+away. `OptionsMarketMakerAgent` quotes a strip, lets uninformed clients trade
+it, and hedges the resulting delta by sending orders into the same equity book
+the other agents trade on - so the hedger is a taker that pays the spread and
+moves the price. Its attribution splits every step into gamma, vega, theta and
+hedging slippage, which is what explains a delta-hedged book that still loses
+money.
+
+### Three things measurement said that intuition did not
+
+**The microprice is not a better fair value here.** Queue imbalance is supposed
+to predict the next move, and in this simulation it does not - the correlation
+is slightly *negative*, and the mid forecasts the next mid better than the
+microprice does. The reason is structural: almost all resting size belongs to
+one inventory-skewing market maker, so imbalance describes what just happened
+rather than what is about to. The estimator and the measurement both ship;
+`test_in_this_market_imbalance_does_not_predict_the_next_move` pins the finding
+so a future change to the flow model cannot quietly invalidate the claim.
+
+**Some quotes do not have an implied volatility.** Deep in the money the price
+is intrinsic value and nothing else - bit-for-bit identical from 0.1% vol to 8%
+vol - so a solver returns whichever root its bracket happened to start near.
+`implied_volatility` measures the *interval* of volatilities consistent with the
+quote and returns `None` with that interval in the reason when it is wider than
+half a volatility point, rather than reporting a number that would flow into a
+surface fit and a hedge ratio.
+
+**`hash()` is not reproducible across processes.** A stochastic agent seeded
+from `hash(agent_id)` produces a different run on every interpreter start,
+because Python randomises string hashing per process. It fails as a flaky test
+rather than as an error, which is worse: the run is simply not reproducible and
+nothing says so. `zlib.crc32` replaced it, and
+`test_the_same_configuration_reproduces_across_processes` runs the same
+configuration under three `PYTHONHASHSEED` values and requires identical output.

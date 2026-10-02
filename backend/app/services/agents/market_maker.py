@@ -1,25 +1,4 @@
-"""Inventory-aware market maker (simplified Avellaneda-Stoikov).
-
-    fair_value = reference price
-    skew       = k * inventory
-    bid        = fair_value - spread/2 - skew
-    ask        = fair_value + spread/2 - skew
-
-The skew subtracts from *both* quotes, which is the part worth being able to
-explain out loud. Long inventory pushes both prices down: the bid gets less
-attractive to sellers, the ask gets more attractive to buyers, so the flow the
-maker attracts is biased toward reducing the position. It does not widen the
-spread - the width stays constant - it *shifts the centre of the quote away from
-the risk*. Widening the spread would be a response to volatility, not to
-inventory, and the two get conflated constantly.
-
-The full Avellaneda-Stoikov result derives both the reservation price shift and
-the optimal half-spread from a utility function with a risk-aversion parameter
-and a finite horizon. This uses the linear inventory term and a fixed width,
-which is the standard simplification: it reproduces the qualitative behaviour
-(quotes lean against inventory) without the closed-form machinery. That is stated
-in docs/architecture.md, not claimed as the full model.
-"""
+"""Inventory-aware market maker (simplified Avellaneda-Stoikov)."""
 
 from __future__ import annotations
 
@@ -28,6 +7,7 @@ from typing import Any, ClassVar
 from app.config import get_settings
 from app.enums import OrderType, Side
 from app.services.agents.base import Agent, MarketView, OrderIntent
+from app.services.microprice import weighted_microprice
 
 
 class MarketMakerAgent(Agent):
@@ -39,18 +19,15 @@ class MarketMakerAgent(Agent):
         "quote_size": _s.mm_quote_size,
         "inventory_skew_k": _s.mm_inventory_skew_k,
         "max_inventory": _s.mm_max_inventory,
-        # Above this fraction of the limit the maker stops adding to the losing
-        # side entirely. Skew alone is a price incentive; at the limit you need
-        # a hard stop, because a sufficiently one-directional market will pay
-        # the skew and keep filling you.
+        # Above this fraction of the limit the maker stops adding to the losing.
         "one_sided_at_risk_score": 0.85,
-        # Widen the quote in proportion to recent realised volatility. A fixed
-        # width during a shock is how a market maker gets run over: every quote
-        # is stale by the time it is hit.
+        # Widen the quote in proportion to recent realised volatility.
         "volatility_widening": True,
         "volatility_window": 20,
         "volatility_widening_k": 2.0,
         "max_spread_multiple": 6.0,
+        # Fair value: "reference" is the V1 behaviour (the latent GBM level).
+        "fair_value_source": "reference",
     }
 
     @classmethod
@@ -69,8 +46,11 @@ class MarketMakerAgent(Agent):
             raise ValueError("one_sided_at_risk_score must be in (0, 1]")
         if config["max_spread_multiple"] < 1.0:
             raise ValueError("max_spread_multiple must be >= 1.0")
+        if config["fair_value_source"] not in ("reference", "microprice", "mid"):
+            raise ValueError(
+                "fair_value_source must be one of: reference, microprice, mid"
+            )
 
-    # ------------------------------------------------------------------ quoting
     def half_spread(self, view: MarketView) -> float:
         base = float(self.config["spread"]) / 2.0
         if not self.config["volatility_widening"]:
@@ -90,8 +70,21 @@ class MarketMakerAgent(Agent):
     def skew(self, inventory: float) -> float:
         return float(self.config["inventory_skew_k"]) * inventory
 
+    def fair_value(self, view: MarketView) -> float:
+        """What this maker believes the instrument is worth right now."""
+        source = self.config["fair_value_source"]
+        if source == "reference":
+            return view.reference_price
+        if source == "mid":
+            return view.mid_price if view.mid_price is not None else view.reference_price
+
+        micro = weighted_microprice(
+            view.best_bid, view.best_ask, view.bid_quantity, view.ask_quantity
+        )
+        return micro if micro is not None else view.reference_price
+
     def decide(self, view: MarketView) -> list[OrderIntent]:
-        fair_value = view.reference_price
+        fair_value = self.fair_value(view)
         half = self.half_spread(view)
         skew = self.skew(view.inventory)
 
