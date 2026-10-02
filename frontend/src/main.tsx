@@ -6,7 +6,7 @@ import App from "./App";
 import "./index.css";
 import Dashboard from "./pages/Dashboard";
 import NewSimulation from "./pages/NewSimulation";
-import SimulationDetail from "./pages/SimulationDetail";
+import SimulationWorkspace from "./pages/SimulationWorkspace";
 
 const router = createBrowserRouter([
   {
@@ -15,7 +15,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: "new", element: <NewSimulation /> },
-      { path: "simulations/:id", element: <SimulationDetail /> },
+      { path: "simulations/:id", element: <SimulationWorkspace /> },
     ],
   },
 ]);

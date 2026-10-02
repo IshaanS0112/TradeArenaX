@@ -4,28 +4,54 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.db.session import Base, engine
-from app.routers import simulations
+from app.routers import ensembles, simulations, sweeps
+
+
+def _run_migrations() -> None:
+    """Bring the database up to head, or fail loudly."""
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine, inspect
+
+    settings = get_settings()
+    root = Path(__file__).resolve().parents[1]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "alembic"))
+    config.set_main_option("sqlalchemy.url", settings.database_url)
+
+    # A database created by V1 has the tables but no alembic_version row.
+    inspector = inspect(create_engine(settings.database_url))
+    tables = set(inspector.get_table_names())
+    if "simulations" in tables and "alembic_version" not in tables:
+        # Which revision it is already at is decided by a table that only.
+        already_current = "ensembles" in tables
+        stamp_at = "head" if already_current else BASELINE_REVISION
+        logger.info("un-stamped database detected; stamping %s before upgrading", stamp_at)
+        command.stamp(config, stamp_at)
+
+    command.upgrade(config, "head")
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
 )
 logger = logging.getLogger("tradearenax")
 
+# : The revision that reproduces the pre-migration (V1) schema exactly.
+BASELINE_REVISION = "155be5af5848"
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # create_all is adequate here because the schema is append-only for V1. A
-    # migration tool (Alembic) is the correct answer the moment a column has to
-    # change shape - noted in docs/architecture.md.
-    import app.models  # noqa: F401  (register mappers before create_all)
+    # Alembic, not create_all.
+    import app.models  # noqa: F401  (register mappers before either path)
 
-    Base.metadata.create_all(bind=engine)
+    _run_migrations()
     settings = get_settings()
     logger.info(
         "TradeArena X up. tick=%s capital_base=%s steps_per_year=%s "
@@ -66,6 +92,8 @@ app.add_middleware(
 )
 
 app.include_router(simulations.router)
+app.include_router(ensembles.router)
+app.include_router(sweeps.router)
 app.include_router(simulations.meta_router)
 
 

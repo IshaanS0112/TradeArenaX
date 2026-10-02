@@ -1,42 +1,4 @@
-"""The simulation loop: what happens, in what order, at every step.
-
-Step ordering is the single most consequential design decision in this file,
-because a plausible-looking order produces look-ahead bias that inflates every
-result. The order used here:
-
-    1. Advance the reference price process.               (the world moves)
-    2. Each agent observes the book and decides.          (all on identical data)
-    3. Intents are submitted in a rotated agent order.    (no fixed queue advantage)
-    4. Fills are applied to position trackers.
-    5. Post-fill inventory breaches force liquidation.
-    6. End-of-step mid is appended to the observable price history.
-    7. Performance is recorded.
-
-Step 2 hands every agent the *same* view, built before any of them acts. If views
-were rebuilt per agent inside the loop, the agent that happened to be second
-would be reacting to the first agent's orders within the same step - a one-step
-information advantage no venue grants, which shows up as suspiciously good PnL
-for whichever agent was created first.
-
-Step 3 rotates submission order by step index. Someone has to be first into the
-matching engine, and being first at a price level is worth money. A fixed order
-would systematically pay one agent for its position in a Python list. Rotation
-spreads it evenly, deterministically given the seed.
-
-**Quote reconciliation, not cancel-and-repost.** A market maker's resting quotes
-are *not* pulled at the start of the step. Instead its desired quote set is
-diffed against what is already resting: orders at a price it still wants are left
-alone, orders it no longer wants are cancelled, and only genuinely new prices are
-submitted. Two consequences, both of them the realistic ones:
-
-- An unchanged price level keeps its queue position. Cancel-and-repost throws
-  away time priority every step, which is a real and expensive mistake.
-- Between steps, the book holds the *previous* step's quotes. A taker acting on
-  step t can therefore hit a quote priced off step t-1's fair value. That is
-  adverse selection, and it is the market maker's central risk - a design that
-  refreshes quotes before anyone can hit them deletes the very risk the
-  inventory-skew logic exists to manage, and flatters the maker's PnL.
-"""
+"""The simulation loop: what happens, in what order, at every step."""
 
 from __future__ import annotations
 
@@ -64,9 +26,7 @@ class AgentState:
     realized_series: list[float] = field(default_factory=list)
     unrealized_series: list[float] = field(default_factory=list)
     liquidation_events: list[int] = field(default_factory=list)
-    #: Quote-reconciliation counters. ``quotes_kept`` is the number of times a
-    #: resting quote survived a step with its queue position intact, which is
-    #: what cancel-and-repost would have thrown away.
+    # : Quote-reconciliation counters.
     quotes_kept: int = 0
     quotes_placed: int = 0
 
@@ -79,14 +39,9 @@ class AgentState:
 class StepRecord:
     step: int
     reference_price: float
-    #: Mid of the touch, or ``None`` when a side of the book was empty.
+    # : Mid of the touch, or ``None`` when a side of the book was empty.
     mid_price: float | None
-    #: The price actually used to mark open inventory this step. Equals
-    #: ``mid_price`` whenever there was one, and falls back to the last trade
-    #: otherwise. Stored separately because marking on a one-sided book is a
-    #: modelling choice, and a PnL figure whose mark cannot be recovered is not
-    #: auditable - writing the (null) mid into the performance row would leave
-    #: the stored unrealized PnL unexplainable.
+    # : The price actually used to mark open inventory this step.
     mark_price: float
     best_bid: float | None
     best_ask: float | None
@@ -102,9 +57,7 @@ class SimulationResult:
     step_records: list[StepRecord]
     fills: list[Fill]
     orders: list[Order]
-    #: The live book at the end of the run. Kept on the result so the
-    #: reconstruction in services/book_replay.py can be checked against ground
-    #: truth rather than against another copy of its own logic.
+    # : The live book at the end of the run.
     book: OrderBook
     agent_states: dict[str, AgentState]
     summaries: dict[str, PerformanceSummary]
@@ -132,15 +85,13 @@ class SimulationEngine:
         )
         self.states: dict[str, AgentState] = {}
         self.trade_prices: list[float] = []
-        # End-of-step mid prices. This is the series every directional signal is
-        # computed from; see services/agents/base.py for why it is not the tape.
+        # End-of-step mid prices.
         self.observed_prices: list[float] = []
         self.step_records: list[StepRecord] = []
         self.warnings: list[str] = []
         self._no_book_steps = 0
         self._step = 0
 
-    # ------------------------------------------------------------------ setup
     def add_agent(self, agent_id: str, agent_type: AgentType | str, config: dict) -> AgentState:
         if agent_id in self.states:
             raise ValueError(f"duplicate agent id {agent_id}")
@@ -159,7 +110,6 @@ class SimulationEngine:
         self.states[agent_id] = state
         return state
 
-    # ------------------------------------------------------------------- run
     def run(self, steps: int) -> SimulationResult:
         if steps <= 0:
             raise ValueError("steps must be positive")
@@ -194,13 +144,13 @@ class SimulationEngine:
             s.step for s in self.price_process.shocks
         }
 
-        # 2. One view per agent, all built from the same pre-action book state.
+        # 2.
         views = {
             agent_id: self._build_view(step, reference, state)
             for agent_id, state in self.states.items()
         }
 
-        # 3. Rotate submission order so no agent has a permanent queue advantage.
+        # 3.
         order_ids = list(self.states)
         rotation = step % len(order_ids)
         submission_order = order_ids[rotation:] + order_ids[:rotation]
@@ -218,22 +168,20 @@ class SimulationEngine:
                 intents = self._reconcile_quotes(state, intents, step)
             step_fills.extend(self._submit_intents(state, intents, step))
 
-        # 4. Fills into the accounting layer.
+        # 4.
         self._apply_fills(step_fills)
 
-        # 5. Forced liquidation for anyone over their limit after fills.
+        # 5.
         step_fills.extend(self._enforce_inventory_limits(step))
 
-        # 6. Record the end-of-step observable price. Appended *after* the step
-        # completes, so a view built at step t can only ever contain steps
-        # 1..t-1 and no signal can encode its own outcome.
+        # 6.
         mid = self.book.mid_price
         if mid is None:
             self._no_book_steps += 1
         mark = self._mark_price()
         self.observed_prices.append(mark)
 
-        # 7. Record per-agent accounting, all against the one mark for this step.
+        # 7.
         for state in self.states.values():
             unrealized = state.tracker.unrealized_pnl(mark)
             state.realized_series.append(state.tracker.realized_pnl)
@@ -256,16 +204,8 @@ class SimulationEngine:
             )
         )
 
-    # -------------------------------------------------------------- internals
     def _mark_price(self) -> float:
-        """Valuation price for open inventory.
-
-        Mid of the book when there is one, else the last trade, else the
-        reference price. Documented in this order because it descends from
-        "what the market would pay" to "what the model thinks it is worth", and
-        the further down that list a mark comes from, the less the unrealized
-        PnL computed with it should be trusted.
-        """
+        """Valuation price for open inventory."""
         mid = self.book.mid_price
         if mid is not None:
             return mid
@@ -275,21 +215,10 @@ class SimulationEngine:
             return self.observed_prices[-1]
         return self.price_process.price
 
-    def _reconcile_quotes(
-        self, state: AgentState, intents: list[OrderIntent], step: int
-    ) -> list[OrderIntent]:
-        """Diff a maker's desired quote set against what it already has resting.
-
-        Returns only the intents that still need to be submitted; cancels the
-        resting orders that are no longer wanted. An order is considered to
-        already satisfy an intent when the side, the tick-quantised price, and
-        the remaining quantity all agree - a partially filled quote therefore
-        gets topped up rather than left short.
-
-        The payoff is queue position: a level the maker still wants keeps the
-        time priority it has already earned, instead of going to the back of the
-        queue every single step.
-        """
+    def _diff_quotes(
+        self, state: AgentState, intents: list[OrderIntent]
+    ) -> tuple[list[int], list[OrderIntent]]:
+        """Diff a maker's desired quote set against what it already has resting."""
         resting = self.book.open_orders(state.agent_id)
         wanted: dict[tuple[Side, int], list[OrderIntent]] = {}
         passthrough: list[OrderIntent] = []
@@ -301,6 +230,7 @@ class SimulationEngine:
             key = (intent.side, self.book.to_ticks(intent.price, intent.side))
             wanted.setdefault(key, []).append(intent)
 
+        to_cancel: list[int] = []
         for order in resting:
             key = (order.side, order.price_ticks)
             candidates = wanted.get(key)
@@ -316,10 +246,19 @@ class SimulationEngine:
                     wanted.pop(key, None)
                 state.quotes_kept += 1
             else:
-                self.book.cancel(order.order_id, step=step)
+                to_cancel.append(order.order_id)
 
         remaining_intents = passthrough + [i for group in wanted.values() for i in group]
         state.quotes_placed += len(remaining_intents)
+        return to_cancel, remaining_intents
+
+    def _reconcile_quotes(
+        self, state: AgentState, intents: list[OrderIntent], step: int
+    ) -> list[OrderIntent]:
+        """Apply the quote diff immediately - the step engine's behaviour."""
+        to_cancel, remaining_intents = self._diff_quotes(state, intents)
+        for order_id in to_cancel:
+            self.book.cancel(order_id, step=step)
         return remaining_intents
 
     def _build_view(self, step: int, reference: float, state: AgentState) -> MarketView:
@@ -335,7 +274,16 @@ class SimulationEngine:
             realized_pnl=state.tracker.realized_pnl,
             unrealized_pnl=state.tracker.unrealized_pnl(self._mark_price()),
             tick_size=self.settings.tick_size,
+            bid_quantity=self._touch_quantity(Side.BUY),
+            ask_quantity=self._touch_quantity(Side.SELL),
         )
+
+    def _touch_quantity(self, side: Side) -> float:
+        """Resting quantity at the best price on one side, zero if empty."""
+        ticks = (
+            self.book.best_bid_ticks() if side is Side.BUY else self.book.best_ask_ticks()
+        )
+        return 0.0 if ticks is None else self.book.depth_at(side, ticks)
 
     def _submit_intents(
         self, state: AgentState, intents: Iterable[OrderIntent], step: int
@@ -377,14 +325,7 @@ class SimulationEngine:
                 )
 
     def _enforce_inventory_limits(self, step: int) -> list[Fill]:
-        """Force a partial liquidation for any agent past its inventory limit.
-
-        Uses MARKET orders: a limit order would sit in the book while the
-        position it is meant to reduce stays open, which is not risk reduction,
-        it is hope. The unfilled remainder of a market order is dropped rather
-        than queued, so a liquidation into an empty book fails loudly (the
-        breach flag stays on the agent) instead of silently resting.
-        """
+        """Force a partial liquidation for any agent past its inventory limit."""
         fills: list[Fill] = []
         for state in self.states.values():
             limit = state.agent.max_inventory

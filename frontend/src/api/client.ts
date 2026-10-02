@@ -4,21 +4,17 @@ import type {
   AgentPerformance,
   AgentType,
   Comparison,
+  GreeksAttribution,
+  LatencyRaces,
+  LiquiditySurface,
+  Microprice,
+  Microstructure,
   OrderBookSnapshot,
   RunSummary,
   Simulation,
 } from "./types";
 
-// In dev, Vite proxies /api -> :8000. In the Docker image, nginx does the same.
-// Either way the browser only ever talks to its own origin.
-//
-// `||` and not `??` on purpose. Vite inlines this value at build time, and an
-// unset build arg arrives as the empty string, not as undefined - so `??` keeps
-// the empty string and every request goes to `/simulations` instead of
-// `/api/simulations`. nginx only proxies `/api/`, so those requests fall through
-// to the SPA catch-all and come back as index.html with a 200. `response.ok` is
-// then true and the failure surfaces as a JSON parse error, which reads as "the
-// API is unreachable" when in fact the request never left the frontend.
+// In dev, Vite proxies /api -> :8000.
 const BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 export class ApiError extends Error {
@@ -45,10 +41,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       detail = await response.text();
     }
-    // FastAPI's detail is a string for our explicit HTTPExceptions and an array
-    // of error objects for request-validation failures. Both are surfaced as
-    // readable text, because "Request failed (422)" tells the user nothing about
-    // which parameter they got wrong.
+    // FastAPI's detail is a string for our explicit HTTPExceptions and an array of error objects.
     const message =
       typeof detail === "string"
         ? detail
@@ -64,11 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (response.status === 204) return undefined as T;
 
-  // A 200 that is not JSON means the request never reached the API. The usual
-  // cause is a misconfigured base path: the request falls through to the SPA
-  // catch-all and comes back as index.html, which `response.ok` happily accepts
-  // and `.json()` then chokes on. Reporting the real cause here saves the next
-  // person the hour it cost to find it the first time.
+  // A 200 that is not JSON means the request never reached the API.
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     throw new ApiError(
@@ -145,4 +134,20 @@ export const api = {
     request<AgentPerformance>(`/simulations/${id}/agents/${agentId}/performance`),
 
   comparison: (id: string) => request<Comparison>(`/simulations/${id}/comparison`),
+
+  microstructure: (id: string) =>
+    request<Microstructure>(`/simulations/${id}/microstructure`),
+
+  latencyRaces: (id: string) => request<LatencyRaces>(`/simulations/${id}/latency-races`),
+
+  greeksAttribution: (id: string) =>
+    request<GreeksAttribution>(`/simulations/${id}/greeks/attribution`),
+
+  microprice: (id: string, stride = 1) =>
+    request<Microprice>(`/simulations/${id}/microprice?stride=${stride}`),
+
+  liquiditySurface: (id: string, levels = 40, stride = 0) =>
+    request<LiquiditySurface>(
+      `/simulations/${id}/liquidity-surface?levels=${levels}&stride=${stride}`,
+    ),
 };

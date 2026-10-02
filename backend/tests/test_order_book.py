@@ -1,8 +1,4 @@
-"""Matching engine tests.
-
-The properties asserted here are the ones that, if broken, produce PnL numbers
-that look plausible and are wrong. Every test ends with an invariant check.
-"""
+"""Matching engine tests."""
 
 from __future__ import annotations
 
@@ -174,7 +170,7 @@ def test_cancel_all_for_agent(book):
     book.assert_invariants()
 
 
-# ------------------------------------------------------------ self-trade prevention
+# ------------------------------------------------------------ self-trade prevention.
 def test_self_trade_prevention_cancels_resting_by_default(book):
     book.submit("mm", Side.SELL, 5, 100.00)
     order, fills = book.submit("mm", Side.BUY, 5, 100.00)
@@ -230,7 +226,6 @@ def test_skip_policy_terminates_when_the_whole_level_is_ours():
     b.assert_invariants()
 
 
-# ----------------------------------------------------------------------- ticks
 def test_tick_quantisation_rounds_away_from_aggression(book):
     # A buy limit must never be rounded *up* into being more aggressive than asked.
     assert book.to_ticks(100.004, Side.BUY) == 10000
@@ -241,13 +236,7 @@ def test_tick_quantisation_rounds_away_from_aggression(book):
 
 
 def test_float_arithmetic_does_not_split_a_price_level(book):
-    """The reason prices are integers internally.
-
-    ``100.10 * 3 / 3`` is not ``100.10`` in binary floating point. Keyed on
-    floats these two orders land on different levels and the book shows phantom
-    depth one ulp apart - two "different" prices a trader cannot tell apart and
-    a matching engine will refuse to cross.
-    """
+    """The reason prices are integers internally."""
     drifted = 100.10 * 3 / 3  # 100.09999999999998
     assert drifted != 100.10, "precondition: these floats really do differ"
 
@@ -275,7 +264,7 @@ def test_snapshot_shape_and_cumulative_depth(book):
 def test_book_never_stays_crossed(book):
     book.submit("a", Side.SELL, 5, 100.00)
     book.submit("b", Side.BUY, 5, 101.00)
-    # The buy at 101 must have consumed the ask at 100 rather than resting above it.
+    # The buy at 101 must have consumed the ask at 100 rather than resting above.
     book.assert_invariants()
     assert book.best_ask is None
     assert book.best_bid is None
@@ -301,3 +290,20 @@ def test_invariant_check_catches_a_corrupted_level(book):
 def test_rejects_non_positive_tick_size():
     with pytest.raises(ValueError):
         OrderBook(tick_size=0.0)
+
+
+def test_drained_level_leaves_no_phantom_touch(book):
+    """A level emptied by many partial fills must not keep a float residue."""
+    book.submit("maker", Side.BUY, 10.0, 99.00)
+    # Nine equal slices of ten: 10 - 9 * (10/9) leaves +1.78e-15.
+    for _ in range(9):
+        book.submit("taker", Side.SELL, 10.0 / 9.0, 99.00)
+
+    level = book._bid_levels.get(book.to_ticks(99.00))
+    assert level is None or level.total == 0.0
+    assert book.best_bid is None, "a drained level must not present a phantom touch"
+
+    # And the book is not reported as crossed against a real ask below.
+    book.submit("other", Side.SELL, 5.0, 95.00)
+    assert book.best_ask == pytest.approx(95.00)
+    book.assert_invariants()

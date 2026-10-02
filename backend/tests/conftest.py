@@ -1,10 +1,4 @@
-"""Shared fixtures.
-
-The API tests run against SQLite in a temp file rather than Postgres, so a clone
-with no database container can still execute the whole suite. The two dialect
-differences that matter (JSONB, UUID) are handled by the column variants in
-db/session.py, so the code under test is the same code that runs in production.
-"""
+"""Shared fixtures."""
 
 from __future__ import annotations
 
@@ -59,13 +53,19 @@ def three_agent_engine(engine):
 def client():
     """FastAPI test client on a fresh schema."""
     from fastapi.testclient import TestClient
+    from sqlalchemy import text
 
     import app.models  # noqa: F401
     from app.db.session import Base, engine as db_engine
     from app.main import app as fastapi_app
 
     Base.metadata.drop_all(bind=db_engine)
-    Base.metadata.create_all(bind=db_engine)
-    with TestClient(fastapi_app) as c:
+    with db_engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+    with TestClient(fastapi_app) as c:  # lifespan runs `alembic upgrade head`
         yield c
+
     Base.metadata.drop_all(bind=db_engine)
+    with db_engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))

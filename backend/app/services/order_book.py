@@ -1,38 +1,4 @@
-"""Limit order book with price-time priority matching.
-
-Data structure
---------------
-Two heaps of *price levels*, not of orders:
-
-    bids: max-heap of int ticks (pushed negated), each level a FIFO deque
-    asks: min-heap of int ticks,                  each level a FIFO deque
-
-Price priority comes from the heap; time priority comes from the deque. Keeping
-orders in per-level FIFOs rather than one big heap of (price, time) is what makes
-time priority survive a partial fill: a resting order that is half-filled stays
-at the head of its queue instead of being re-inserted behind orders that arrived
-after it.
-
-Three details that a naive implementation gets wrong, and this one does not:
-
-1. **Prices are integers.** A level is identified by ``round(price / tick)``.
-   Keying levels on floats produces phantom levels one ulp apart, because equal
-   intentions do not produce equal floats (``100.10 - 0.05 + 0.05 != 100.10``).
-
-2. **Time priority uses a sequence number, not a clock.** Every order takes the
-   next value from a monotonic counter. Wall-clock timestamps tie - inside one
-   simulation step they tie constantly - and a tie in the priority key means the
-   matching order is whatever the container happened to do, which is not a
-   specification.
-
-3. **Cancellation is lazy.** Removing an order from the middle of a deque is
-   O(n) in the level's depth. Cancelled orders are flagged and skipped when the
-   matcher reaches them; the *displayed* depth stays correct because each level
-   maintains its own live quantity total, which is decremented on cancel.
-
-Empty levels are likewise popped from the heap lazily, when a best-price lookup
-walks past them.
-"""
+"""Limit order book with price-time priority matching."""
 
 from __future__ import annotations
 
@@ -43,8 +9,7 @@ from dataclasses import dataclass, field
 
 from app.enums import OrderStatus, OrderType, SelfTradePrevention, Side
 
-# Sentinel: a MARKET order will cross any price, so it is represented as a limit
-# at an unreachable one. Kept far outside any tick a GBM path could reach.
+# Sentinel: a MARKET order will cross any price, so it is represented as a limit.
 _UNBOUNDED = 1 << 60
 
 
@@ -65,6 +30,10 @@ _CANCELLED_RESTING = _Signal("cancelled_resting")  # STP pulled a resting order
 _CANCELLED_INCOMING = _Signal("cancelled_incoming")  # STP pulled the aggressor
 
 
+# A level's cached total is maintained by repeated subtraction as orders fill.
+_QTY_EPSILON = 1e-9
+
+
 @dataclass(slots=True)
 class Order:
     """A single resting or in-flight order. Quantities are in shares."""
@@ -79,14 +48,9 @@ class Order:
     order_type: OrderType = OrderType.LIMIT
     step: int = 0
     status: OrderStatus = OrderStatus.OPEN
-    #: Step at which an explicit cancel was applied. Persisted so a
-    #: reconstruction does not show every quote a maker ever posted still
-    #: resting, because the cancels that pulled them are not in the order stream.
+    # : Step at which an explicit cancel was applied.
     cancelled_at_step: int | None = None
-    #: Position of that cancel in the book's single event sequence. The step
-    #: alone is not enough to replay exactly: within one step a taker may hit a
-    #: stale quote *before* the maker gets its turn to pull it, and a replay that
-    #: applies all of a step's cancels up front deletes those executions.
+    # : Position of that cancel in the book's single event sequence.
     cancelled_at_sequence: int | None = None
 
     @property
@@ -126,22 +90,20 @@ class Fill:
 
 @dataclass(slots=True)
 class _Level:
-    """A single price level: FIFO queue plus a live quantity total.
-
-    ``total`` excludes cancelled and filled orders still physically present in
-    the deque, so depth queries do not have to walk the queue.
-    """
+    """A single price level: FIFO queue plus a live quantity total."""
 
     queue: deque[Order] = field(default_factory=deque)
     total: float = 0.0
 
 
-class OrderBook:
-    """A single-instrument limit order book.
+def _reduced(total: float, quantity: float) -> float:
+    """Subtract ``quantity`` from a level total, snapping arithmetic dust to zero."""
+    remaining = total - quantity
+    return 0.0 if remaining < _QTY_EPSILON else remaining
 
-    Not thread-safe by design: one book belongs to one simulation run, which is
-    executed by one worker.
-    """
+
+class OrderBook:
+    """A single-instrument limit order book."""
 
     def __init__(
         self,
@@ -163,15 +125,8 @@ class OrderBook:
         self._sequences = itertools.count(1)
         self.trades: list[Fill] = []
 
-    # ------------------------------------------------------------------ ticks
     def to_ticks(self, price: float, side: Side | None = None) -> int:
-        """Quantise a price to the tick grid.
-
-        A limit price is rounded *away* from aggression - a buy limit down, a
-        sell limit up - so quantisation can never make an order more aggressive
-        than the agent asked for. With no side given (a reference/mid price)
-        it rounds to nearest.
-        """
+        """Quantise a price to the tick grid."""
         raw = price / self.tick_size
         if side is Side.BUY:
             return int(raw // 1)
@@ -182,7 +137,6 @@ class OrderBook:
     def to_price(self, ticks: int) -> float:
         return ticks * self.tick_size
 
-    # ------------------------------------------------------------------- book
     def _levels(self, side: Side) -> dict[int, _Level]:
         return self._bid_levels if side is Side.BUY else self._ask_levels
 
@@ -221,13 +175,7 @@ class OrderBook:
 
     @property
     def mid_price(self) -> float | None:
-        """Mid of the touch. ``None`` when either side is empty.
-
-        Deliberately not falling back to the last trade or to a reference price:
-        a mid quoted from one side of the book is not a mid, and silently
-        inventing one is how a backtest starts reporting profit that the market
-        never offered. Callers decide what to do with the absence.
-        """
+        """Mid of the touch."""
         bid, ask = self.best_bid_ticks(), self.best_ask_ticks()
         if bid is None or ask is None:
             return None
@@ -277,7 +225,6 @@ class OrderBook:
             "total_trades": len(self.trades),
         }
 
-    # ----------------------------------------------------------------- orders
     def submit(
         self,
         agent_id: str,
@@ -287,10 +234,7 @@ class OrderBook:
         order_type: OrderType = OrderType.LIMIT,
         step: int = 0,
     ) -> tuple[Order, list[Fill]]:
-        """Submit an order, match it, and rest any remainder if it is a limit.
-
-        Returns the order (with its final status) and the fills it generated.
-        """
+        """Submit an order, match it, and rest any remainder if it is a limit."""
         if quantity <= 0:
             raise ValueError("order quantity must be positive")
         if order_type is OrderType.LIMIT and price is None:
@@ -317,9 +261,7 @@ class OrderBook:
         fills = self._match(order)
 
         if order.status is OrderStatus.CANCELLED:
-            # Self-trade prevention pulled the aggressor. Its remaining quantity
-            # is zero, but reporting it as FILLED would put a fictional
-            # execution in the order log.
+            # Self-trade prevention pulled the aggressor.
             pass
         elif order.remaining <= 0:
             order.status = OrderStatus.FILLED
@@ -343,8 +285,7 @@ class OrderBook:
             )
             if best is None:
                 break
-            # Crossing test. A buy matches asks at or below its limit; a sell
-            # matches bids at or above it.
+            # Crossing test.
             if incoming.side is Side.BUY:
                 if best > incoming.price_ticks:
                     break
@@ -358,25 +299,13 @@ class OrderBook:
                 self._prune(opposite)
 
             if not progressed:
-                # Nothing at this level can be traded and nothing was removed,
-                # so re-entering the loop would re-examine the identical state
-                # forever. This happens under SKIP when the entire best level
-                # belongs to the incoming order's own agent. Stopping rather
-                # than walking to a worse price is deliberate: trading through
-                # your own better-priced order to reach someone else's worse one
-                # is a self-trade-through, and it is why most venues cancel
-                # rather than skip.
+                # Nothing at this level can be traded and nothing was removed.
                 break
 
         return fills
 
     def _match_at_level(self, incoming: Order, level: _Level, fills: list[Fill]) -> bool:
-        """Match ``incoming`` against one price level.
-
-        Returns whether any progress was made - a trade, a cancel, or the
-        reaping of a lazily-deleted order. The caller uses that to guarantee
-        termination.
-        """
+        """Match ``incoming`` against one price level."""
         progressed = False
 
         while incoming.remaining > 0:
@@ -394,13 +323,10 @@ class OrderBook:
                 return progressed
 
             traded = min(incoming.remaining, resting.remaining)
-            # Price-time priority: execution happens at the *resting* order's
-            # price. The passive side set the terms; the aggressor accepted them.
-            # Using the incoming price instead would hand the aggressor a rebate
-            # it never earned.
+            # Price-time priority: execution happens at the *resting* order's.
             incoming.remaining -= traded
             resting.remaining -= traded
-            level.total -= traded
+            level.total = _reduced(level.total, traded)
 
             if incoming.side is Side.BUY:
                 buy_order, sell_order = incoming, resting
@@ -426,24 +352,13 @@ class OrderBook:
                 if level.queue and level.queue[0] is resting:
                     level.queue.popleft()
             else:
-                # Partially filled and still in place: time priority is
-                # preserved, which is the whole point of the per-level FIFO.
+                # Partially filled and still in place: time priority.
                 resting.status = OrderStatus.PARTIAL
 
         return progressed
 
     def _first_matchable(self, incoming: Order, level: _Level):
-        """Walk the level's queue for the first order ``incoming`` may trade with.
-
-        Returns the order, ``None`` if the level holds nothing tradable, or one
-        of the sentinels below to tell the caller that state changed and it
-        should re-examine the level.
-
-        Non-live orders at the head are reaped here; interior ones are stepped
-        over and reaped when they reach the head. That keeps the default path
-        amortised O(1) per fill. Under SKIP the walk is O(depth), which is
-        accepted because SKIP is not the default policy.
-        """
+        """Walk the level's queue for the first order ``incoming`` may trade."""
         while level.queue and not level.queue[0].is_live:
             level.queue.popleft()
             return _REAPED
@@ -461,7 +376,7 @@ class OrderBook:
                 return _CANCELLED_INCOMING
 
             if self.stp is SelfTradePrevention.CANCEL_RESTING:
-                level.total -= candidate.remaining
+                level.total = _reduced(level.total, candidate.remaining)
                 candidate.remaining = 0.0
                 candidate.status = OrderStatus.CANCELLED
                 return _CANCELLED_RESTING
@@ -489,22 +404,16 @@ class OrderBook:
             return False
         level = self._levels(order.side).get(order.price_ticks)
         if level is not None:
-            level.total -= order.remaining
+            level.total = _reduced(level.total, order.remaining)
         order.remaining = 0.0
         order.status = OrderStatus.CANCELLED
         order.cancelled_at_step = step
-        # A cancel is an event in the same ordered stream as a submission, so it
-        # takes the next sequence number. That is what makes the log replayable.
+        # A cancel is an event in the same ordered stream as a submission.
         order.cancelled_at_sequence = next(self._sequences)
         return True
 
     def cancel_all_for_agent(self, agent_id: str, step: int | None = None) -> int:
-        """Pull every live order for one agent. Used for quote refresh.
-
-        A market maker re-quotes every step; leaving the previous step's quotes
-        resting would let it accumulate an unbounded stack of stale orders at
-        prices the fair value has since walked away from.
-        """
+        """Pull every live order for one agent."""
         return sum(
             1
             for o in list(self._orders.values())
@@ -525,22 +434,11 @@ class OrderBook:
     def all_orders(self) -> list[Order]:
         return list(self._orders.values())
 
-    # ------------------------------------------------------------ invariants
     def assert_invariants(self) -> None:
-        """Check the properties the book must never violate.
-
-        Called by the test suite after every mutation-heavy scenario, and once
-        at the end of each simulation run. An order book that silently breaks
-        one of these produces PnL numbers that look plausible and are wrong,
-        which is the worst possible failure mode for this project.
-        """
+        """Check the properties the book must never violate."""
         bid, ask = self.best_bid_ticks(), self.best_ask_ticks()
         if bid is not None and ask is not None and bid >= ask:
-            # A crossed book is normally a matching bug - executable liquidity
-            # left resting. There is exactly one legitimate exception: under the
-            # SKIP self-trade policy, an agent whose own order it may not match
-            # rests on top of it, and the two sides of the cross belong to the
-            # same agent. That is not executable by anyone, so it is allowed.
+            # A crossed book is normally a matching bug - executable liquidity.
             crossing_agents = {
                 o.agent_id
                 for levels, cmp_ticks in (

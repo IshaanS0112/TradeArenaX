@@ -7,11 +7,15 @@ from app.services.agents.base import Agent, MarketView, OrderIntent
 from app.services.agents.market_maker import MarketMakerAgent
 from app.services.agents.mean_reversion import MeanReversionAgent
 from app.services.agents.momentum import MomentumAgent
+from app.services.agents.noise_trader import NoiseTraderAgent
+from app.services.agents.options_maker import OptionsMarketMakerAgent
 
 _REGISTRY: dict[AgentType, type[Agent]] = {
     AgentType.MARKET_MAKER: MarketMakerAgent,
     AgentType.MOMENTUM: MomentumAgent,
     AgentType.MEAN_REVERSION: MeanReversionAgent,
+    AgentType.NOISE_TRADER: NoiseTraderAgent,
+    AgentType.OPTIONS_MAKER: OptionsMarketMakerAgent,
 }
 
 
@@ -35,6 +39,8 @@ __all__ = [
     "MarketMakerAgent",
     "MomentumAgent",
     "MeanReversionAgent",
+    "NoiseTraderAgent",
+    "OptionsMarketMakerAgent",
     "build_agent",
     "default_config",
 ]

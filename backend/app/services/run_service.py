@@ -1,10 +1,4 @@
-"""Persistence layer around a run: DB rows in, engine out, DB rows back.
-
-Kept out of the router so the engine can be driven from a script or a test with
-no HTTP layer, and out of the engine so the engine has no database dependency.
-The engine does not know what a session is; this module is the only place that
-knows both.
-"""
+"""Persistence layer around a run: DB rows in, engine out, DB rows back."""
 
 from __future__ import annotations
 
@@ -19,8 +13,15 @@ from app.enums import OrderType
 from app.models import Agent as AgentRow
 from app.models import AgentPerformance, Order, Simulation, SimulationStep, Trade
 from app.services.agents import build_agent
+from app.services.event_engine import EventDrivenEngine
+from app.services.latency import STEP_DURATION_US, LatencyProfile
+from app.services.microstructure import (
+    DEFAULT_HORIZONS,
+    aggregate,
+    measure_trades,
+    summarise_by_agent,
+)
 from app.services.simulation_engine import (
-    SimulationEngine,
     SimulationResult,
     build_price_process,
 )
@@ -29,12 +30,7 @@ logger = logging.getLogger("tradearenax.run")
 
 
 def engine_config_snapshot(settings: Settings) -> dict[str, Any]:
-    """The constants that turn the same agents on the same path into a number.
-
-    Persisted with every run. Without it a stored Sharpe of 1.8 cannot be
-    checked, because Sharpe depends on capital_base and steps_per_year, and
-    neither is recoverable from the PnL series.
-    """
+    """The constants that turn the same agents on the same path into a number."""
     return {
         "tick_size": settings.tick_size,
         "min_order_quantity": settings.min_order_quantity,
@@ -45,6 +41,8 @@ def engine_config_snapshot(settings: Settings) -> dict[str, Any]:
         "steps_per_year": settings.steps_per_year,
         "self_trade_prevention": str(settings.self_trade_prevention),
         "liquidation_fraction": settings.liquidation_fraction,
+        "spread_horizon_steps": settings.spread_horizon_steps,
+        "step_duration_us": STEP_DURATION_US,
     }
 
 
@@ -60,12 +58,7 @@ def run_simulation(
     persist_every_n_steps: int = 1,
     settings: Settings | None = None,
 ) -> tuple[SimulationResult, dict[str, str]]:
-    """Execute a simulation and persist orders, trades, steps, and performance.
-
-    Re-running an existing simulation clears its previous results first. The
-    alternative - appending - produces a performance table with two step 1 rows
-    and charts that zigzag back in time.
-    """
+    """Execute a simulation and persist orders, trades, steps, and performance."""
     settings = settings or get_settings()
     agent_rows: list[AgentRow] = list(
         db.scalars(select(AgentRow).where(AgentRow.simulation_id == simulation.id)).all()
@@ -82,15 +75,21 @@ def run_simulation(
         },
         settings,
     )
-    engine = SimulationEngine(price_process=price_process, settings=settings)
+    # The event-driven engine is the engine now.
+    engine = EventDrivenEngine(price_process=price_process, settings=settings)
 
     for row in agent_rows:
-        engine.add_agent(agent_id=row.id, agent_type=row.agent_type, config=row.config)
+        engine.add_agent(
+            agent_id=row.id,
+            agent_type=row.agent_type,
+            config=row.config,
+            latency=LatencyProfile.from_config(row.latency_config),
+        )
 
     result = engine.run(steps)
 
     _persist_orders(db, simulation.id, result)
-    _persist_trades(db, simulation.id, result)
+    _persist_trades(db, simulation.id, result, settings)
     _persist_steps(db, simulation.id, result, persist_every_n_steps)
     _persist_performance(db, simulation.id, result, persist_every_n_steps)
 
@@ -104,6 +103,10 @@ def run_simulation(
     simulation.status = "COMPLETED"
     simulation.engine_config = engine_config_snapshot(settings)
     simulation.run_summary = build_run_summary(simulation.id, result, names)
+    simulation.run_summary["latency"] = engine.latency_summary()
+    simulation.run_summary["latency_races"] = [r.as_dict() for r in engine.races]
+    simulation.run_summary["microstructure"] = _microstructure_summary(result, settings)
+    simulation.run_summary["greeks"] = _greeks_summary(result)
 
     db.commit()
     return result, names
@@ -133,15 +136,20 @@ def build_run_summary(
     }
 
 
-def pnl_conservation_residual(result: SimulationResult) -> float:
-    """Sum of all agents' total PnL, which must be -(fees) in a closed system.
+def _greeks_summary(result: SimulationResult) -> dict[str, Any]:
+    """Attribution for every options maker in the run, if there are any."""
+    from app.services.agents.options_maker import OptionsMarketMakerAgent
 
-    Every trade moves value between two participants in this simulation; nothing
-    enters or leaves except fees. So the sum of total PnL across agents is zero
-    when fees are off, and exactly minus the fees collected when they are on.
-    This is the strongest single check on the accounting layer, and it runs on
-    every run rather than only in tests.
-    """
+    out: dict[str, Any] = {}
+    for agent_id, state in result.agent_states.items():
+        agent = state.agent
+        if isinstance(agent, OptionsMarketMakerAgent):
+            out[agent_id] = agent.attribution()
+    return out
+
+
+def pnl_conservation_residual(result: SimulationResult) -> float:
+    """Sum of all agents' total PnL, which must be -(fees) in a closed system."""
     total = sum(s.total_pnl for s in result.summaries.values())
     fees = sum(s.fees_paid for s in result.summaries.values())
     return total + fees
@@ -164,8 +172,7 @@ def _persist_orders(db: Session, simulation_id: str, result: SimulationResult) -
             "step": order.step,
             "side": str(order.side),
             "order_type": str(order.order_type),
-            # A MARKET order carries a sentinel internal price that is not a
-            # real price; storing it would put 1e18 in a price column.
+            # A MARKET order carries a sentinel internal price.
             "price": None
             if order.order_type is OrderType.MARKET
             else round(order.price_ticks * tick, 10),
@@ -181,24 +188,54 @@ def _persist_orders(db: Session, simulation_id: str, result: SimulationResult) -
         db.bulk_insert_mappings(Order, rows)
 
 
-def _persist_trades(db: Session, simulation_id: str, result: SimulationResult) -> None:
-    tick = get_settings().tick_size
-    rows = [
-        {
-            "simulation_id": simulation_id,
-            "step": fill.step,
-            "buy_order_id": fill.buy_order_id,
-            "sell_order_id": fill.sell_order_id,
-            "buy_agent_id": fill.buy_agent_id,
-            "sell_agent_id": fill.sell_agent_id,
-            "aggressor_side": str(fill.aggressor_side),
-            "price": round(fill.price_ticks * tick, 10),
-            "quantity": fill.quantity,
-        }
-        for fill in result.fills
-    ]
+def _persist_trades(
+    db: Session, simulation_id: str, result: SimulationResult, settings: Settings
+) -> None:
+    """Trades, each carrying its own spread decomposition."""
+    tick = settings.tick_size
+    mids = [rec.mid_price for rec in result.step_records]
+    horizon = settings.spread_horizon_steps
+    measures = measure_trades(result.fills, mids, tick, horizons=(horizon,))
+
+    rows = []
+    for fill, measure in zip(result.fills, measures, strict=True):
+        values = measure.at(horizon)
+        rows.append(
+            {
+                "simulation_id": simulation_id,
+                "step": fill.step,
+                "buy_order_id": fill.buy_order_id,
+                "sell_order_id": fill.sell_order_id,
+                "buy_agent_id": fill.buy_agent_id,
+                "sell_agent_id": fill.sell_agent_id,
+                "aggressor_side": str(fill.aggressor_side),
+                "price": round(fill.price_ticks * tick, 10),
+                "quantity": fill.quantity,
+                "mid_at_trade": measure.mid_at_trade,
+                "effective_half_spread": None if values is None else values[0],
+                "realised_half_spread": None if values is None else values[1],
+                "price_impact": None if values is None else values[2],
+                # Null when the trade had no mid at its own step or none.
+                "horizon_steps": None if values is None else horizon,
+            }
+        )
     if rows:
         db.bulk_insert_mappings(Trade, rows)
+
+
+def _microstructure_summary(result: SimulationResult, settings: Settings) -> dict[str, Any]:
+    """Spread decomposition at every reported horizon, market-wide and per agent."""
+    mids = [rec.mid_price for rec in result.step_records]
+    horizons = tuple(sorted({*DEFAULT_HORIZONS, settings.spread_horizon_steps}))
+    measures = measure_trades(result.fills, mids, settings.tick_size, horizons=horizons)
+    return {
+        "horizons": list(horizons),
+        "default_horizon_steps": settings.spread_horizon_steps,
+        "market": {str(h): aggregate(measures, h) for h in horizons},
+        "by_agent": {
+            str(h): [s.as_dict() for s in summarise_by_agent(measures, h)] for h in horizons
+        },
+    }
 
 
 def _persist_steps(
@@ -218,9 +255,7 @@ def _persist_steps(
             "trade_count": rec.trade_count,
             "shock_fired": rec.shock_fired,
         }
-        # A shock step is never downsampled away: it is the one step a reader
-        # will look for, and dropping it because it fell between samples makes
-        # the chart lie about what happened.
+        # A shock step is never downsampled away: it is the one step a reader.
         for rec in result.step_records
         if rec.step % every == 0 or rec.step == result.steps_run or rec.shock_fired
     ]

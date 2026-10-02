@@ -1,0 +1,52 @@
+/* Design tokens. */
+
+:root {
+  color-scheme: dark;
+
+  /* Surface */
+  --bg-base: #07090d;
+  --bg-panel: #0e121a;
+  --bg-raised: #151b26;
+  --border: #1e2634;
+  --border-focus: #2d3a4f;
+
+  /* Text */
+  --fg-primary: #e6ebf2;
+  --fg-secondary: #8b98ad;
+  --fg-muted: #5a6577;
+
+  /* Semantic */
+  --bid: #26d07c;
+  --ask: #f2544b;
+  --accent: #38bdf8;
+  --warn: #f5b544;
+  --info: #a78bfa;
+
+  /* The same colours as bare RGB channels. */
+  --bid-rgb: 38 208 124;
+  --ask-rgb: 242 84 75;
+  --accent-rgb: 56 189 248;
+  --warn-rgb: 245 181 68;
+  --info-rgb: 167 139 250;
+  --bg-base-rgb: 7 9 13;
+  --bg-panel-rgb: 14 18 26;
+  --bg-raised-rgb: 21 27 38;
+  --border-rgb: 30 38 52;
+  --border-focus-rgb: 45 58 79;
+  --fg-primary-rgb: 230 235 242;
+  --fg-secondary-rgb: 139 152 173;
+  --fg-muted-rgb: 90 101 119;
+
+  /* Type */
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Motion. */
+  --motion-fast: 120ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+  }
+}

@@ -9,13 +9,7 @@ from app.db.session import Base, UUIDStr, utc_now
 
 
 class Trade(Base):
-    """One execution.
-
-    ``aggressor_side`` is stored because it is not derivable after the fact and
-    it is the field that separates the passive side from the active one - which
-    is what decides who earned the spread and who paid for immediacy. A trade
-    log without it cannot explain a market maker's PnL.
-    """
+    """One execution."""
 
     __tablename__ = "trades"
     __table_args__ = (Index("ix_trades_sim_step", "simulation_id", "step"),)
@@ -36,4 +30,10 @@ class Trade(Base):
     aggressor_side: Mapped[str] = mapped_column(String(4), nullable=False)
     price: Mapped[float] = mapped_column(Float, nullable=False)
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    # Trade-level adverse-selection measures.
+    mid_at_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
+    effective_half_spread: Mapped[float | None] = mapped_column(Float, nullable=True)
+    realised_half_spread: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_impact: Mapped[float | None] = mapped_column(Float, nullable=True)
+    horizon_steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
     executed_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())

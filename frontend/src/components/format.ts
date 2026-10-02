@@ -1,10 +1,4 @@
-/** Display helpers.
- *
- * The rule everywhere in this UI: a null metric renders as an em dash, never as
- * zero. An agent that never closed a round trip has no win rate, and printing
- * "0.0%" invites the reader to conclude it lost every trade. Same for a Sharpe
- * ratio whose denominator was zero.
- */
+/** Display helpers. */
 
 export const DASH = "—";
 
@@ -45,7 +39,7 @@ export const AGENT_LABEL: Record<string, string> = {
 };
 
 export const AGENT_COLOR: Record<string, string> = {
-  MARKET_MAKER: "#38bdf8",
-  MOMENTUM: "#fbbf24",
-  MEAN_REVERSION: "#c084fc",
+  MARKET_MAKER: "var(--accent)",
+  MOMENTUM: "var(--warn)",
+  MEAN_REVERSION: "var(--info)",
 };

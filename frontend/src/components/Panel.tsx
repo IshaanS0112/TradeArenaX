@@ -15,7 +15,7 @@ export function Panel({
     <section className="rounded-lg border border-edge bg-panel">
       <header className="flex flex-wrap items-start gap-3 border-b border-edge px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-secondary">
             {title}
           </h2>
           {subtitle && <p className="mt-0.5 text-xs text-muted">{subtitle}</p>}
@@ -34,7 +34,7 @@ export function Empty({ children }: { children: ReactNode }) {
 export function Notes({ notes }: { notes: string[] }) {
   if (!notes.length) return null;
   return (
-    <ul className="mt-3 space-y-1 text-xs text-caution">
+    <ul className="mt-3 space-y-1 text-xs text-warn">
       {notes.map((note) => (
         <li key={note}>· {note}</li>
       ))}

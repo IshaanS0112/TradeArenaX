@@ -1,35 +1,4 @@
-"""Agent interface.
-
-An agent is a pure function of what it can observe. It returns *intents*; it
-never touches the book, the tracker, or the database. That separation is what
-makes each strategy testable in isolation - every agent test in this repo
-constructs a MarketView by hand and asserts on the intents, with no simulation
-running.
-
-What an agent may observe is deliberately restricted:
-
-- the current book (touch and depth),
-- ``price_history``: the end-of-step mid price series for every *completed*
-  step, which is public information any participant could read off the book,
-- ``trade_prices``: the executed trade tape,
-- its own inventory and PnL.
-
-Signals are computed from ``price_history``, not from ``trade_prices``. That is
-not a cosmetic choice - the first version of this engine keyed the directional
-signals off the trade tape and deadlocked: the tape is empty until someone
-trades, and nobody trades until a signal fires. Real strategies read the quoted
-price series, and the quoted series exists from the first step a maker quotes.
-
-``reference_price`` - the latent GBM level - is read by the **market maker only**,
-as its fair value. That is a stated simplification, not an accident: a live maker
-infers fair value from order flow, and handing it the true fundamental gives it a
-small informational edge over the directional agents. Building an inference model
-instead is a project of its own and would not change the microstructure mechanics
-this platform exists to demonstrate. A directional agent that read
-``reference_price`` would be look-ahead bias, and there is a test
-(``test_no_lookahead.py``) that perturbs the field and asserts their decisions do
-not move.
-"""
+"""Agent interface."""
 
 from __future__ import annotations
 
@@ -48,17 +17,19 @@ class MarketView:
     best_bid: float | None
     best_ask: float | None
     mid_price: float | None
-    #: Latent fundamental. Market maker only - see the module docstring.
+    # : Latent fundamental.
     reference_price: float
-    #: End-of-step mid prices for completed steps. Strictly historical: it has
-    #: ``step - 1`` entries, so nothing in it can encode this step's outcome.
+    # : End-of-step mid prices for completed steps.
     price_history: Sequence[float]
-    #: The executed tape. Available for analysis; signals use price_history.
+    # : The executed tape.
     trade_prices: Sequence[float]
     inventory: float
     realized_pnl: float
     unrealized_pnl: float
     tick_size: float
+    # : Resting quantity at the touch.
+    bid_quantity: float = 0.0
+    ask_quantity: float = 0.0
 
     @property
     def has_two_sided_book(self) -> bool:
@@ -96,24 +67,16 @@ class Agent(ABC):
     agent_id: str
     config: dict[str, Any]
 
-    #: Parameter name -> default. Subclasses declare their full parameter set
-    #: here so that ``resolve_config`` can validate an incoming config strictly
-    #: instead of silently ignoring a misspelled key - a typo'd "threshhold"
-    #: that leaves the default in place is a result you cannot reproduce.
+    # : Parameter name -> default.
     DEFAULTS: ClassVar[dict[str, Any]] = {}
-    #: Whether this archetype re-quotes (cancel + replace) every step.
+    # : Whether this archetype re-quotes (cancel + replace) every step.
     REQUOTES_EACH_STEP: ClassVar[bool] = False
 
-    #: Set by the engine when an inventory breach forces a liquidation.
+    # : Set by the engine when an inventory breach forces a liquidation.
     flags: list[str] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
-        # Declared on the base rather than on each subclass on purpose: a
-        # dataclass only emits the ``__post_init__`` call into ``__init__`` if
-        # the hook exists on the class being decorated. A subclass that defines
-        # ``__post_init__`` while the decorated base does not would never have
-        # it called, and the missing attribute would surface as an
-        # AttributeError on the first decide() rather than at construction.
+        # Declared on the base rather than on each subclass on purpose:.
         self._last_trade_step: int | None = None
 
     @classmethod
@@ -142,23 +105,14 @@ class Agent(ABC):
     def decide(self, view: MarketView) -> list[OrderIntent]:
         """Return the orders this agent wants to place at this step."""
 
-    # ------------------------------------------------------------------ helpers
     def _clamp_to_inventory_limit(
         self, side: Side, quantity: float, inventory: float
     ) -> float:
-        """Shrink an order so filling it cannot breach the inventory limit.
-
-        Position limits that are only checked *after* a fill are not limits. The
-        engine still runs a post-fill breach check and forces liquidation,
-        because a resting order can fill several steps after it was sized - but
-        an agent that knowingly sends an order that would breach its own limit
-        is a bug, not a strategy.
-        """
+        """Shrink an order so filling it cannot breach the inventory limit."""
         if _same_direction(side, inventory):
             room = self.max_inventory - abs(inventory)
         else:
-            # Trading against the position: there is room to flatten it *and*
-            # then to build the same limit in the other direction.
+            # Trading against the position: there is room to flatten it *and*.
             room = self.max_inventory + abs(inventory)
         return max(0.0, min(quantity, room))
 

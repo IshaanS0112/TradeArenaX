@@ -42,7 +42,6 @@ def full_run(client, steps=120, **sim_overrides):
     return sim, agents, r.json()
 
 
-# ------------------------------------------------------------------- basics
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
@@ -108,7 +107,6 @@ def test_duplicate_shock_steps_are_rejected(client):
     assert r.status_code == 422
 
 
-# ------------------------------------------------------------------- agents
 def test_agent_config_is_resolved_with_defaults(client):
     sim = create_sim(client)
     agent = client.post(
@@ -170,7 +168,6 @@ def test_adding_an_agent_invalidates_a_completed_run(client):
     )
 
 
-# ---------------------------------------------------------------------- run
 def test_running_with_no_agents_is_422(client):
     sim = create_sim(client)
     r = client.post(f"/simulations/{sim['id']}/run", json={"steps": 50})
@@ -236,7 +233,7 @@ def test_a_shock_step_is_never_downsampled_away(client):
     )
 
 
-# -------------------------------------------------------------- order book
+# -------------------------------------------------------------- order book.
 def test_book_snapshot_requires_a_completed_run(client):
     sim = create_sim(client)
     add_agents(client, sim["id"])
@@ -275,7 +272,6 @@ def test_book_snapshot_past_the_end_is_422(client):
     assert r.status_code == 422
 
 
-# -------------------------------------------------------------- performance
 def test_agent_performance_series(client):
     sim, agents, _ = full_run(client, steps=150)
     agent_id = agents[0]["id"]
@@ -291,12 +287,7 @@ def test_agent_performance_series(client):
 
 
 def test_every_performance_row_records_the_mark_it_used(client):
-    """An unrealized PnL whose mark cannot be recovered is not auditable.
-
-    The mid price is null on a one-sided book, but the engine still had to mark
-    open inventory against *something* - the last trade. Storing the null mid
-    would leave those rows unexplainable.
-    """
+    """An unrealized PnL whose mark cannot be recovered is not auditable."""
     sim, agents, _ = full_run(client, steps=200)
     body = client.get(
         f"/simulations/{sim['id']}/agents/{agents[0]['id']}/performance"
@@ -320,7 +311,6 @@ def test_performance_for_an_agent_in_another_simulation_is_404(client):
     assert r.status_code == 404
 
 
-# --------------------------------------------------------------- comparison
 def test_comparison_ranks_agents_and_reports_the_conservation_check(client):
     sim, agents, _ = full_run(client, steps=200)
     body = client.get(f"/simulations/{sim['id']}/comparison").json()
@@ -352,12 +342,18 @@ def test_comparison_requires_a_completed_run(client):
     assert client.get(f"/simulations/{sim['id']}/comparison").status_code == 409
 
 
-# --------------------------------------------------------------------- meta
 def test_agent_defaults_endpoint_lists_every_tunable(client):
     body = client.get("/meta/agent-defaults").json()
-    assert set(body) == {"MARKET_MAKER", "MOMENTUM", "MEAN_REVERSION"}
+    assert set(body) == {
+        "MARKET_MAKER",
+        "MOMENTUM",
+        "MEAN_REVERSION",
+        "NOISE_TRADER",
+        "OPTIONS_MAKER",
+    }
     assert "inventory_skew_k" in body["MARKET_MAKER"]
     assert "z_threshold" in body["MEAN_REVERSION"]
+    assert "activity" in body["NOISE_TRADER"]
 
 
 def test_engine_config_endpoint_publishes_the_formulas(client):
@@ -372,7 +368,6 @@ def test_openapi_schema_is_valid(client):
     assert "/simulations/{simulation_id}/comparison" in schema["paths"]
 
 
-# ------------------------------------------------------- reproducibility
 def test_two_runs_with_the_same_seed_report_the_same_pnl(client):
     _, agents_a, summary_a = full_run(client, steps=150)
     _, agents_b, summary_b = full_run(client, steps=150)
