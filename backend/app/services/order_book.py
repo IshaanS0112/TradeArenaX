@@ -48,9 +48,9 @@ class Order:
     order_type: OrderType = OrderType.LIMIT
     step: int = 0
     status: OrderStatus = OrderStatus.OPEN
-    # : Step at which an explicit cancel was applied.
+    # Step at which an explicit cancel was applied.
     cancelled_at_step: int | None = None
-    # : Position of that cancel in the book's single event sequence.
+    # Position of that cancel in the book's single event sequence.
     cancelled_at_sequence: int | None = None
 
     @property

@@ -26,7 +26,7 @@ class Simulation(Base):
     engine_config: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
     run_summary: Mapped[dict] = mapped_column(JsonBlob, default=dict, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="CREATED", nullable=False)
-    # : Set when this run is one path of an ensemble.
+    # Set when this run is one path of an ensemble.
     ensemble_id: Mapped[str | None] = mapped_column(
         UUIDStr, ForeignKey("ensembles.id", ondelete="CASCADE"), nullable=True
     )

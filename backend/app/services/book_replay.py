@@ -87,7 +87,7 @@ class BookHistory:
     mid: list[float | None]
     best_bid: list[float | None]
     best_ask: list[float | None]
-    # : Resting quantity at the touch, which is what the microprice weights.
+    # Resting quantity at the touch, which is what the microprice weights.
     bid_quantity: list[float]
     ask_quantity: list[float]
     grid: list[float]

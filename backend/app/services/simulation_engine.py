@@ -26,7 +26,7 @@ class AgentState:
     realized_series: list[float] = field(default_factory=list)
     unrealized_series: list[float] = field(default_factory=list)
     liquidation_events: list[int] = field(default_factory=list)
-    # : Quote-reconciliation counters.
+    # Quote-reconciliation counters.
     quotes_kept: int = 0
     quotes_placed: int = 0
 
@@ -39,9 +39,9 @@ class AgentState:
 class StepRecord:
     step: int
     reference_price: float
-    # : Mid of the touch, or ``None`` when a side of the book was empty.
+    # Mid of the touch, or ``None`` when a side of the book was empty.
     mid_price: float | None
-    # : The price actually used to mark open inventory this step.
+    # The price actually used to mark open inventory this step.
     mark_price: float
     best_bid: float | None
     best_ask: float | None
@@ -57,7 +57,7 @@ class SimulationResult:
     step_records: list[StepRecord]
     fills: list[Fill]
     orders: list[Order]
-    # : The live book at the end of the run.
+    # The live book at the end of the run.
     book: OrderBook
     agent_states: dict[str, AgentState]
     summaries: dict[str, PerformanceSummary]

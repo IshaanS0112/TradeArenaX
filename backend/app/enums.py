@@ -45,9 +45,9 @@ class AgentType(StrEnum):
     MARKET_MAKER = "MARKET_MAKER"
     MOMENTUM = "MOMENTUM"
     MEAN_REVERSION = "MEAN_REVERSION"
-    # : Uninformed flow.
+    # Uninformed flow.
     NOISE_TRADER = "NOISE_TRADER"
-    # : Quotes a strip of options and hedges the delta into this same equity.
+    # Quotes a strip of options and hedges the delta into this same equity.
     OPTIONS_MAKER = "OPTIONS_MAKER"
 
 

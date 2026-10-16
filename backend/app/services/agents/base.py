@@ -17,17 +17,17 @@ class MarketView:
     best_bid: float | None
     best_ask: float | None
     mid_price: float | None
-    # : Latent fundamental.
+    # Latent fundamental.
     reference_price: float
-    # : End-of-step mid prices for completed steps.
+    # End-of-step mid prices for completed steps.
     price_history: Sequence[float]
-    # : The executed tape.
+    # The executed tape.
     trade_prices: Sequence[float]
     inventory: float
     realized_pnl: float
     unrealized_pnl: float
     tick_size: float
-    # : Resting quantity at the touch.
+    # Resting quantity at the touch.
     bid_quantity: float = 0.0
     ask_quantity: float = 0.0
 
@@ -67,12 +67,12 @@ class Agent(ABC):
     agent_id: str
     config: dict[str, Any]
 
-    # : Parameter name -> default.
+    # Parameter name -> default.
     DEFAULTS: ClassVar[dict[str, Any]] = {}
-    # : Whether this archetype re-quotes (cancel + replace) every step.
+    # Whether this archetype re-quotes (cancel + replace) every step.
     REQUOTES_EACH_STEP: ClassVar[bool] = False
 
-    # : Set by the engine when an inventory breach forces a liquidation.
+    # Set by the engine when an inventory breach forces a liquidation.
     flags: list[str] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:

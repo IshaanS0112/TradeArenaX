@@ -42,7 +42,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("tradearenax")
 
-# : The revision that reproduces the pre-migration (V1) schema exactly.
+# The revision that reproduces the pre-migration (V1) schema exactly.
 BASELINE_REVISION = "155be5af5848"
 
 
