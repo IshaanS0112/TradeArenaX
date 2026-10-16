@@ -263,7 +263,7 @@ metrics are computed rather than asserted is checkable without reading the sourc
 
 ## Test strategy
 
-210 tests, organised by the property being defended rather than by file:
+540 tests, organised by the property being defended rather than by file:
 
 | File | Defends |
 |---|---|
@@ -276,6 +276,14 @@ metrics are computed rather than asserted is checkable without reading the sourc
 | `test_simulation_engine.py` | **PnL conservation with and without fees**; inventory conservation; uncrossed book at end; run reproducibility; the maker earns the spread in a calm market; shock effects; both risk layers |
 | `test_book_replay.py` | Replay reproduces the live book *and* the live trade count; intermediate steps are prefixes; cancels do not pile up; re-running replaces rather than appends |
 | `test_api.py` | Full CRUD; 422 on every invalid payload; misspelled config keys rejected; shock past end-of-run rejected; downsampling preserves the final step and never drops a shock step; conservation residual exposed; book replay through HTTP |
+| `test_event_engine.py` | **Zero-latency equivalence**: with every profile at zero the event engine reproduces the step loop exactly, with and without a shock; orders always arrive after the decision that produced them and cancels after their wake; a stale feed makes an agent act on an out-of-date world; a cancel in flight loses the race and the fill happens; adverse fills rise monotonically with the latency gap; jitter is clamped at zero and deterministic; conservation and the uncrossed-book invariant both survive latency; the same configuration reproduces across processes |
+| `test_microstructure.py` | `effective = realised + impact` per trade; the maker's sign convention is the passive one; horizons are independent; an agent that only takes shows a negative effective half-spread |
+| `test_statistics.py` | `normal_ppf` against known quantiles; stationary bootstrap preserves autocorrelation that an IID resample destroys; bootstrap CI covers at the nominal rate; Lo's SE agrees with the bootstrap on IID returns; DSR falls monotonically in trial count at fixed dispersion; PBO is ~0.5 for pure noise and near 0 for a genuinely dominant cell; purged k-fold leaks nothing across a fold boundary |
+| `test_derivatives.py` | Put-call parity; Greeks against finite differences; guarded limits at `tau -> 0` and `sigma -> 0`; implied vol round-trips where a bracket exists and returns `None` with the consistent interval where it does not; SVI fits recover planted parameters; butterfly and calendar violations are located, not just flagged |
+| `test_options_maker.py` | Quotes bracket the model price and widen with vega and gamma; no hedge inside the band; a breach hedges to the band edge, not to zero; the Whalley-Wilmott cube root; gamma PnL tracks `0.5 G S^2` over a known path; the hedger reaches the equity book and conservation still holds; option premium stays out of the equity accounting |
+| `test_ensembles.py` / `test_sweeps.py` | Paths are independent and reproducible per seed and conservation holds on every one; the grid is a stable cartesian product; selection and evaluation use different seeds; the best cell and the robust centroid are both reported and are not the same thing; PBO is reported with the grid that produced it |
+| `test_microprice.py` | Microprice equals the mid at perfect balance, is monotonic in imbalance and bracketed by the touch; states with too little data are left unfitted; the imbalance-to-next-move relationship is measured rather than assumed — in this market it is weakly *negative*, so neither estimator beats the mid, and both tests say so |
+| `test_migrations.py` | `upgrade head` reproduces the model schema; downgrade to the baseline and back is lossless; every revision has an unbroken `down_revision` chain; `alembic.ini` hardcodes no database URL |
 
 The API tests run on SQLite in a temp file so a clone with no database container
 executes the whole suite. The two dialect differences (JSONB, UUID) are handled by
@@ -322,9 +330,15 @@ and mean nothing — the second one goes *negative* on a losing run. Both were i
 original spec as one-liners. Writing down what each quantity is measured *in* was
 what surfaced them.
 
-**`create_all` is a decision with an expiry date.** It is right while the schema is
-append-only and wrong the first time a column changes shape. Recorded here so the
-next person does not have to infer whether it was considered.
+**`create_all` was a decision with an expiry date, and it expired.** It is right
+while the schema is append-only and wrong the first time a column changes shape.
+The latency and microstructure columns were that change, so the schema moved to
+Alembic: a baseline revision that reproduces the V1 schema exactly, a second one
+for the new columns, `render_as_batch=True` so SQLite can rebuild tables for
+constraint changes, and a test asserting the migrated schema and the models agree.
+A database created before the move has the tables but no `alembic_version` row, so
+startup stamps the baseline before upgrading rather than trying to create what is
+already there.
 
 **Float dust survives at the bottom of a price level.** A level's cached total is
 maintained by subtraction as orders fill and cancel, and repeated subtraction does
