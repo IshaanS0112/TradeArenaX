@@ -107,12 +107,29 @@ export function LatencyRaceModule({ data }: { data: ModuleData }) {
   if (!latency) return <EmptyState>No latency data for this run.</EmptyState>;
 
   if (!latency.races.length) {
+    // Two different reasons produce an empty panel, and conflating them reads as a bug.
+    const configured = Object.values(latency.profiles).some(
+      (p) => (p.latency_in_us ?? 0) > 0 || (p.latency_out_us ?? 0) > 0 || (p.latency_jitter_us ?? 0) > 0
+    );
     return (
       <div className="flex h-full flex-col gap-3">
         <EmptyState>
-          No contested fills: every agent in this run has the same (zero) latency, so no
-          cancel was ever in flight when an order arrived. Give the maker a
-          <span className="num"> latency_out_us</span> and re-run.
+          <span className="max-w-prose">
+            {configured ? (
+              <>
+                Latency is configured, but no cancel was in flight when an order arrived. A
+                race needs the maker to be slower on the way out than the agents taking its
+                quotes — raise the maker&rsquo;s{" "}
+                <span className="num">latency_out_us</span> above theirs and re-run.
+              </>
+            ) : (
+              <>
+                No contested fills: every agent in this run has zero latency, so no cancel
+                was ever in flight when an order arrived. Give the maker a{" "}
+                <span className="num">latency_out_us</span> and re-run.
+              </>
+            )}
+          </span>
         </EmptyState>
         <div className="scroll-thin max-h-28 overflow-auto text-2xs text-muted">
           {Object.entries(latency.profiles).map(([agent, profile]) => (

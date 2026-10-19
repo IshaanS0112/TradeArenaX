@@ -1,6 +1,6 @@
 import type { ModuleData } from "./types";
 import { EmptyState, ErrorState, Skeleton } from "../design/primitives";
-import { num } from "../components/format";
+import { num, quantity } from "../components/format";
 
 /** The touch and the levels behind it, at the scrubbed step. */
 export function BookLadder({ data }: { data: ModuleData }) {
@@ -54,7 +54,7 @@ export function BookLadder({ data }: { data: ModuleData }) {
               {num(level.price, 2)}
             </span>
             <span className="num relative z-10 ml-auto text-primary">
-              {num(level.quantity, 0)}
+              {quantity(level.quantity)}
             </span>
             <span className="num relative z-10 w-10 text-right text-muted">
               {level.order_count}
