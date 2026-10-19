@@ -174,6 +174,7 @@ A misspelled config key returns 422 rather than silently defaulting, and the res
 
 | | |
 |---|---|
+| [`docs/product-and-technical-spec.md`](docs/product-and-technical-spec.md) | PRD + TRD: what it does and why, user flows, the full schema, every endpoint with its error states, security posture, deployment |
 | [`docs/architecture.md`](docs/architecture.md) | Step ordering that prevents look-ahead bias, schema reasoning, the full test strategy, lessons learned |
 | [`backend/app/services/`](backend/app/services/) | `order_book.py` → `event_engine.py` → `microstructure.py` → `statistics.py` |
 | [`frontend/src/modules/`](frontend/src/modules/) | One file per panel; `registry.ts` is the index |
