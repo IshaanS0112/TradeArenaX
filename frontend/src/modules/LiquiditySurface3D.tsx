@@ -182,7 +182,7 @@ export default function LiquiditySurface3D({ data }: { data: ModuleData }) {
   );
 
   if (data.errors.surface) {
-    return <ErrorState endpoint={data.endpoints.surface} message={data.errors.surface} />;
+    return <ErrorState endpoint={data.endpoints.surface} message={data.errors.surface} onRetry={data.reload} />;
   }
   if (data.loading.surface && !data.surface) return <Skeleton lines={8} />;
   const surface = data.surface;

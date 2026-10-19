@@ -35,7 +35,7 @@ function distinctColours(base: Series[]): Series[] {
 
 export function PnLCurve({ data }: { data: ModuleData }) {
   if (data.errors.performance) {
-    return <ErrorState endpoint={data.endpoints.performance} message={data.errors.performance} />;
+    return <ErrorState endpoint={data.endpoints.performance} message={data.errors.performance} onRetry={data.reload} />;
   }
   if (data.loading.performance && !data.performances.length) return <Skeleton lines={6} />;
   if (!data.performances.length) return <EmptyState>No agent series yet.</EmptyState>;
@@ -60,7 +60,7 @@ export function PnLCurve({ data }: { data: ModuleData }) {
 
 export function InventoryCurve({ data }: { data: ModuleData }) {
   if (data.errors.performance) {
-    return <ErrorState endpoint={data.endpoints.performance} message={data.errors.performance} />;
+    return <ErrorState endpoint={data.endpoints.performance} message={data.errors.performance} onRetry={data.reload} />;
   }
   if (data.loading.performance && !data.performances.length) return <Skeleton lines={6} />;
   if (!data.performances.length) return <EmptyState>No agent series yet.</EmptyState>;
@@ -83,7 +83,7 @@ export function InventoryCurve({ data }: { data: ModuleData }) {
 
 export function MarketChart({ data }: { data: ModuleData }) {
   if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} />;
+    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
   }
   if (data.loading.comparison && !data.comparison) return <Skeleton lines={6} />;
   const market = data.comparison?.market ?? [];
@@ -121,7 +121,7 @@ export function MarketChart({ data }: { data: ModuleData }) {
 
 export function AgentMatrix({ data }: { data: ModuleData }) {
   if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} />;
+    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
   }
   if (data.loading.comparison && !data.comparison) return <Skeleton lines={6} />;
   const rows = data.comparison?.rows ?? [];

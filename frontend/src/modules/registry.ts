@@ -12,6 +12,17 @@ import {
   SpreadDecomposition,
 } from "./MicrostructureModules";
 import { ConservationCheck, MarketTape } from "./RiskModules";
+import {
+  agentMatrixRows,
+  bookLadderRows,
+  greeksRows,
+  inventoryRows,
+  latencyRaceRows,
+  marketTapeRows,
+  micropriceRows,
+  pnlRows,
+  spreadRows,
+} from "./exports";
 
 // three.js is ~600 KB parsed and only one module needs it, so it is loaded on demand.
 const LiquiditySurface3D = lazy(() => import("./LiquiditySurface3D"));
@@ -25,6 +36,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["book"],
     defaultWidth: 1,
     defaultHeight: 340,
+    toRows: bookLadderRows,
     Component: BookLadder,
   },
   {
@@ -67,6 +79,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["comparison"],
     defaultWidth: 2,
     defaultHeight: 320,
+    toRows: marketTapeRows,
     Component: MarketChart,
   },
   {
@@ -77,6 +90,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["performance", "comparison"],
     defaultWidth: 2,
     defaultHeight: 320,
+    toRows: pnlRows,
     Component: PnLCurve,
   },
   {
@@ -87,6 +101,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["performance", "comparison"],
     defaultWidth: 2,
     defaultHeight: 320,
+    toRows: inventoryRows,
     Component: InventoryCurve,
   },
   {
@@ -97,6 +112,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["comparison"],
     defaultWidth: 2,
     defaultHeight: 340,
+    toRows: agentMatrixRows,
     Component: AgentMatrix,
   },
   {
@@ -107,6 +123,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["microstructure"],
     defaultWidth: 2,
     defaultHeight: 340,
+    toRows: spreadRows,
     Component: SpreadDecomposition,
   },
   {
@@ -117,6 +134,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["latency"],
     defaultWidth: 1,
     defaultHeight: 340,
+    toRows: latencyRaceRows,
     Component: LatencyRaceModule,
   },
   {
@@ -127,6 +145,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["greeks"],
     defaultWidth: 2,
     defaultHeight: 340,
+    toRows: greeksRows,
     Component: GreeksAttribution,
   },
   {
@@ -137,6 +156,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["microprice"],
     defaultWidth: 2,
     defaultHeight: 340,
+    toRows: micropriceRows,
     Component: MicropriceModule,
   },
   {
@@ -157,6 +177,7 @@ export const MODULES: ModuleDefinition[] = [
     dataDeps: ["comparison"],
     defaultWidth: 1,
     defaultHeight: 340,
+    toRows: marketTapeRows,
     Component: MarketTape,
   },
 ];

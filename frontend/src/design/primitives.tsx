@@ -58,12 +58,15 @@ export function Button({
   onClick,
   variant = "ghost",
   title,
+  label,
   disabled,
 }: {
   children: ReactNode;
   onClick?: () => void;
   variant?: "ghost" | "primary" | "quiet";
   title?: string;
+  /** Spoken name. Required when the visible content is a glyph rather than words. */
+  label?: string;
   disabled?: boolean;
 }) {
   const variants: Record<string, string> = {
@@ -77,9 +80,12 @@ export function Button({
     <button
       type="button"
       title={title}
+      // `title` is a tooltip, not a name: it is skipped by some screen readers and never
+      // appears on touch. The spoken name comes from `label`, falling back to the tooltip.
+      aria-label={label ?? title}
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-input px-2 py-1 text-xs transition-colors duration-fast ${variants[variant]}`}
+      className={`rounded-input px-2 py-1 text-xs transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-panel ${variants[variant]}`}
     >
       {children}
     </button>
@@ -108,12 +114,31 @@ export function EmptyState({ children }: { children: ReactNode }) {
   );
 }
 
-export function ErrorState({ endpoint, message }: { endpoint: string; message: string }) {
+export function ErrorState({
+  endpoint,
+  message,
+  onRetry,
+}: {
+  endpoint: string;
+  message: string;
+  onRetry?: () => void;
+}) {
   return (
-    <div className="space-y-1 rounded-input border border-ask/40 bg-ask/10 p-3 text-xs text-ask">
+    // role="alert" so a failure that appears after load is announced, not silently painted.
+    <div
+      role="alert"
+      className="space-y-1 rounded-input border border-ask/40 bg-ask/10 p-3 text-xs text-ask"
+    >
       <p className="font-medium">This module could not load.</p>
       <p className="num break-all text-2xs opacity-80">{endpoint}</p>
       <p className="text-2xs opacity-90">{message}</p>
+      {onRetry && (
+        <div className="pt-1">
+          <Button variant="ghost" onClick={onRetry} title="Fetch this module's data again">
+            Retry
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

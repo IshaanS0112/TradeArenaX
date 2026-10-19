@@ -11,7 +11,15 @@
  * a real cost.
  */
 
+import { useMemo, useRef, useState } from "react";
+
 const MAX_POINTS = 700;
+
+/* Chart chrome reads from the design tokens, so a palette change reaches the charts too. */
+const GRID = "var(--border)";
+const AXIS_TEXT = "var(--fg-secondary)";
+const ZERO = "var(--border-focus)";
+const SHOCK = "var(--ask)";
 
 export interface Series {
   label: string;
@@ -32,7 +40,14 @@ export function LineChart({
   yLabel?: string;
   zeroLine?: boolean;
 }) {
-  const visible = series.filter((s) => s.points.length > 1).map(decimate);
+  const svgRef = useRef<SVGSVGElement>(null);
+  // null means "no cursor": the legend then reads the last value of each series.
+  const [cursorX, setCursorX] = useState<number | null>(null);
+
+  const visible = useMemo(
+    () => series.filter((s) => s.points.length > 1).map(decimate),
+    [series],
+  );
   if (!visible.length) {
     return <p className="py-8 text-center text-sm text-muted">Not enough data to plot.</p>;
   }
@@ -64,12 +79,48 @@ export function LineChart({
 
   const ticks = [yMin, yMin + (yMax - yMin) / 2, yMax];
 
+  // Each series snaps to its own nearest sample: they are decimated independently,
+  // so a shared index would read different steps off different lines.
+  const readout = visible.map((s) => ({
+    label: s.label,
+    color: s.color,
+    point: cursorX === null ? s.points[s.points.length - 1] : nearest(s.points, cursorX),
+  }));
+  const cursorStep = cursorX === null ? null : Math.round(cursorX);
+
+  /** Client pixels -> viewBox units -> data units. */
+  const moveCursor = (clientX: number) => {
+    const box = svgRef.current?.getBoundingClientRect();
+    if (!box || box.width === 0) return;
+    const frac = (((clientX - box.left) / box.width) * W - PAD.left) / (plotW || 1);
+    setCursorX(frac < 0 || frac > 1 ? null : xMin + frac * (xMax - xMin));
+  };
+
   return (
     <figure className="w-full">
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
-        className="h-auto w-full"
+        className="h-auto w-full touch-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
         role="img"
+        tabIndex={0}
+        onPointerMove={(event) => moveCursor(event.clientX)}
+        onMouseMove={(event) => moveCursor(event.clientX)}
+        onPointerLeave={() => setCursorX(null)}
+        onBlur={() => setCursorX(null)}
+        onKeyDown={(event) => {
+          // Arrow keys step the cursor, so the values are reachable without a pointer.
+          const span = xMax - xMin || 1;
+          const nudge = span / 60;
+          if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+            event.preventDefault();
+            const base = cursorX ?? xMax;
+            const next = base + (event.key === "ArrowRight" ? nudge : -nudge);
+            setCursorX(Math.min(xMax, Math.max(xMin, next)));
+          } else if (event.key === "Escape") {
+            setCursorX(null);
+          }
+        }}
         aria-label={`${series.map((s) => s.label).join(", ")} over simulation steps`}
       >
         {ticks.map((t) => (
@@ -79,10 +130,10 @@ export function LineChart({
               x2={W - PAD.right}
               y1={sy(t)}
               y2={sy(t)}
-              stroke="#1f2637"
+              stroke={GRID}
               strokeWidth={1}
             />
-            <text x={PAD.left - 6} y={sy(t) + 3} textAnchor="end" fontSize={10} fill="#8794ad">
+            <text x={PAD.left - 6} y={sy(t) + 3} textAnchor="end" fontSize={10} fill={AXIS_TEXT}>
               {compact(t)}
             </text>
           </g>
@@ -94,7 +145,7 @@ export function LineChart({
             x2={W - PAD.right}
             y1={sy(0)}
             y2={sy(0)}
-            stroke="#3f4a63"
+            stroke={ZERO}
             strokeWidth={1}
             strokeDasharray="4 3"
           />
@@ -107,11 +158,11 @@ export function LineChart({
               x2={sx(step)}
               y1={PAD.top}
               y2={PAD.top + plotH}
-              stroke="#ef4444"
+              stroke={SHOCK}
               strokeWidth={1}
               strokeDasharray="3 3"
             />
-            <text x={sx(step) + 3} y={PAD.top + 9} fontSize={9} fill="#ef4444">
+            <text x={sx(step) + 3} y={PAD.top + 9} fontSize={9} fill={SHOCK}>
               shock
             </text>
           </g>
@@ -128,29 +179,73 @@ export function LineChart({
           />
         ))}
 
-        <text x={PAD.left} y={H - 5} fontSize={10} fill="#8794ad">
+        {cursorX !== null && (
+          <g aria-hidden>
+            <line
+              x1={sx(cursorX)}
+              x2={sx(cursorX)}
+              y1={PAD.top}
+              y2={PAD.top + plotH}
+              stroke={AXIS_TEXT}
+              strokeWidth={1}
+              opacity={0.5}
+            />
+            {readout.map(
+              (r) =>
+                r.point && (
+                  <circle
+                    key={r.label}
+                    cx={sx(r.point.x)}
+                    cy={sy(r.point.y)}
+                    r={3}
+                    fill={r.color}
+                  />
+                ),
+            )}
+          </g>
+        )}
+
+        <text x={PAD.left} y={H - 5} fontSize={10} fill={AXIS_TEXT}>
           step {Math.round(xMin)}
         </text>
-        <text x={W - PAD.right} y={H - 5} fontSize={10} fill="#8794ad" textAnchor="end">
+        <text x={W - PAD.right} y={H - 5} fontSize={10} fill={AXIS_TEXT} textAnchor="end">
           {Math.round(xMax)}
         </text>
       </svg>
 
-      <figcaption className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+      <figcaption className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         {yLabel && <span className="mr-2 text-slate-400">{yLabel}</span>}
-        {series.map((s) => (
-          <span key={s.label} className="flex items-center gap-1.5">
+        <span className="num text-secondary">
+          {cursorStep === null ? "final" : `step ${cursorStep}`}
+        </span>
+        {readout.map((r) => (
+          <span key={r.label} className="flex items-center gap-1.5">
             <span
               className="inline-block h-2 w-2 rounded-full"
-              style={{ background: s.color }}
+              style={{ background: r.color }}
               aria-hidden
             />
-            {s.label}
+            {r.label}
+            {r.point && <span className="num text-primary">{compact(r.point.y)}</span>}
           </span>
         ))}
       </figcaption>
     </figure>
   );
+}
+
+/** Binary search for the sample closest to `x`; the points are sorted by step. */
+function nearest(points: { x: number; y: number }[], x: number) {
+  let lo = 0;
+  let hi = points.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid]!.x < x) lo = mid;
+    else hi = mid;
+  }
+  const a = points[lo]!;
+  const b = points[hi]!;
+  return Math.abs(a.x - x) <= Math.abs(b.x - x) ? a : b;
 }
 
 function decimate(s: Series): Series {

@@ -6,7 +6,7 @@ import { num, signed } from "../components/format";
 export function SpreadDecomposition({ data }: { data: ModuleData }) {
   if (data.errors.microstructure) {
     return (
-      <ErrorState endpoint={data.endpoints.microstructure} message={data.errors.microstructure} />
+      <ErrorState endpoint={data.endpoints.microstructure} message={data.errors.microstructure} onRetry={data.reload} />
     );
   }
   if (data.loading.microstructure && !data.microstructure) return <Skeleton lines={6} />;
@@ -100,7 +100,7 @@ export function SpreadDecomposition({ data }: { data: ModuleData }) {
 /** One contested fill, drawn as a timeline. */
 export function LatencyRaceModule({ data }: { data: ModuleData }) {
   if (data.errors.latency) {
-    return <ErrorState endpoint={data.endpoints.latency} message={data.errors.latency} />;
+    return <ErrorState endpoint={data.endpoints.latency} message={data.errors.latency} onRetry={data.reload} />;
   }
   if (data.loading.latency && !data.latency) return <Skeleton lines={6} />;
   const latency = data.latency;
@@ -223,7 +223,7 @@ export function LatencyRaceModule({ data }: { data: ModuleData }) {
 /** Gamma, theta and hedging slippage for a delta-hedged options book. */
 export function GreeksAttribution({ data }: { data: ModuleData }) {
   if (data.errors.greeks) {
-    return <ErrorState endpoint={data.endpoints.greeks} message={data.errors.greeks} />;
+    return <ErrorState endpoint={data.endpoints.greeks} message={data.errors.greeks} onRetry={data.reload} />;
   }
   if (data.loading.greeks && !data.greeks) return <Skeleton lines={6} />;
   const greeks = data.greeks;
@@ -304,7 +304,7 @@ export function GreeksAttribution({ data }: { data: ModuleData }) {
 /** Microprice against mid, and which one actually forecasts better. */
 export function MicropriceModule({ data }: { data: ModuleData }) {
   if (data.errors.microprice) {
-    return <ErrorState endpoint={data.endpoints.microprice} message={data.errors.microprice} />;
+    return <ErrorState endpoint={data.endpoints.microprice} message={data.errors.microprice} onRetry={data.reload} />;
   }
   if (data.loading.microprice && !data.microprice) return <Skeleton lines={6} />;
   const micro = data.microprice;

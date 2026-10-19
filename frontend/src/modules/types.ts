@@ -1,5 +1,7 @@
 import type { FC } from "react";
 
+import type { CsvTable } from "../components/csv";
+
 import type {
   AgentPerformance,
   Comparison,
@@ -37,6 +39,8 @@ export interface ModuleData {
   /** The step the book scrubber is parked on, shared by every module that shows a point in time. */
   step: number;
   setStep: (step: number) => void;
+  /** Re-fetch everything. An error state offers this rather than asking for a page refresh. */
+  reload: () => void;
   /** Per-dependency load and error state, so a module renders its own skeleton or a named error. */
   loading: Record<DataDep, boolean>;
   errors: Partial<Record<DataDep, string>>;
@@ -64,5 +68,10 @@ export interface ModuleDefinition {
   defaultHeight: number;
   /** 3D modules are lazy so three.js never enters the main bundle. */
   lazy?: boolean;
+  /**
+   * The rows behind the panel, for the CSV button in its header. A panel that has no
+   * tabular source omits this and shows no button, which is why the button never lies.
+   */
+  toRows?: (data: ModuleData) => CsvTable | null;
   Component: FC<{ data: ModuleData }>;
 }

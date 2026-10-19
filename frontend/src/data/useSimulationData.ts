@@ -15,7 +15,7 @@ import type {
 import type { DataDep, ModuleData } from "../modules/types";
 
 /** The shell owns every fetch. */
-export function useSimulationData(id: string): ModuleData & { reload: () => void } {
+export function useSimulationData(id: string): ModuleData {
   const [simulation, setSimulation] = useState<Simulation | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [performances, setPerformances] = useState<AgentPerformance[]>([]);

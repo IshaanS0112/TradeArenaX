@@ -5,7 +5,7 @@ import { num } from "../components/format";
 /** The invariant, shown rather than claimed. */
 export function ConservationCheck({ data }: { data: ModuleData }) {
   if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} />;
+    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
   }
   if (data.loading.comparison && !data.comparison) return <Skeleton lines={5} />;
   const comparison = data.comparison;
@@ -60,7 +60,7 @@ export function ConservationCheck({ data }: { data: ModuleData }) {
 /** Step-by-step tape: the debugging view, and the one that makes a shock concrete — spread. */
 export function MarketTape({ data }: { data: ModuleData }) {
   if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} />;
+    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
   }
   if (data.loading.comparison && !data.comparison) return <Skeleton lines={8} />;
   const market = data.comparison?.market ?? [];

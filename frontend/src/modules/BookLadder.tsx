@@ -5,7 +5,7 @@ import { num, quantity } from "../components/format";
 /** The touch and the levels behind it, at the scrubbed step. */
 export function BookLadder({ data }: { data: ModuleData }) {
   if (data.errors.book) {
-    return <ErrorState endpoint={data.endpoints.book} message={data.errors.book} />;
+    return <ErrorState endpoint={data.endpoints.book} message={data.errors.book} onRetry={data.reload} />;
   }
   if (data.loading.book && !data.book) return <Skeleton lines={8} />;
   if (!data.book) return <EmptyState>Run the simulation to rebuild its book.</EmptyState>;

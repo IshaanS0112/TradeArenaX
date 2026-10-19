@@ -254,6 +254,7 @@ export default function SimulationWorkspace() {
             <ModuleFrame
               key={placement.id}
               definition={definition}
+              data={data}
               width={placement.width}
               onWidth={(width) =>
                 setPlacements((current) =>

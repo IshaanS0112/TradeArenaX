@@ -52,7 +52,7 @@ export function BookHeatmap({ data }: { data: ModuleData }) {
   }, [surface]);
 
   if (data.errors.surface) {
-    return <ErrorState endpoint={data.endpoints.surface} message={data.errors.surface} />;
+    return <ErrorState endpoint={data.endpoints.surface} message={data.errors.surface} onRetry={data.reload} />;
   }
   if (data.loading.surface && !surface) return <Skeleton lines={7} />;
   if (!surface || !surface.steps.length) {
