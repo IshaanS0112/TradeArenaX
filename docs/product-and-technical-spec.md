@@ -11,7 +11,7 @@
 | | |
 |---|---|
 | **Status** | Shipped. 540 tests passing, 13 skipped. |
-| **Scale** | Backend 7,656 LOC · tests 4,552 LOC · frontend 3,442 LOC |
+| **Scale** | Backend 7,656 LOC · tests 4,552 LOC · frontend 3,917 LOC |
 | **Stack** | FastAPI · SQLAlchemy 2.0 · Alembic · PostgreSQL / SQLite · React 18 · TypeScript · Tailwind · Vite |
 | **Deployment** | `docker compose up --build` — four services |
 
@@ -155,7 +155,7 @@ a reinforcement-learning benchmark desk.
 | Run throughput | — | ~1,000 steps × 5 desks in well under a second |
 | Conservation residual | `< 1e-6` | `~1e-13` typical |
 | Test suite | Fast enough to run on every save | ~15 s, 540 tests |
-| Frontend main bundle | three.js excluded | 272 kB (87 kB gzip); three.js split into its own chunk |
+| Frontend main bundle | three.js excluded | 269 kB (87 kB gzip); three.js split into its own chunk |
 | Database | Must run with no server | SQLite and PostgreSQL, same code, dialect variants |
 | Accessibility | Keyboard-reachable analytics | Focus rings, labelled controls, keyboard chart cursor, `role="alert"` errors |
 
