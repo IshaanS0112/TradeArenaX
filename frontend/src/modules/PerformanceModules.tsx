@@ -1,5 +1,5 @@
 import type { ModuleData } from "./types";
-import { AxisNote, EmptyState, ErrorState, Skeleton } from "../design/primitives";
+import { AxisNote, EmptyState, gate } from "../design/primitives";
 import { LineChart, type Series } from "../components/LineChart";
 import { AGENT_COLOR, num, pnlClass, ratePct, signed } from "../components/format";
 
@@ -34,10 +34,8 @@ function distinctColours(base: Series[]): Series[] {
 }
 
 export function PnLCurve({ data }: { data: ModuleData }) {
-  if (data.errors.performance) {
-    return <ErrorState endpoint={data.endpoints.performance} message={data.errors.performance} onRetry={data.reload} />;
-  }
-  if (data.loading.performance && !data.performances.length) return <Skeleton lines={6} />;
+  const blocked = gate(data, "performance");
+  if (blocked) return blocked;
   if (!data.performances.length) return <EmptyState>No agent series yet.</EmptyState>;
 
   const shocks = data.comparison?.shock_steps ?? [];
@@ -59,10 +57,8 @@ export function PnLCurve({ data }: { data: ModuleData }) {
 }
 
 export function InventoryCurve({ data }: { data: ModuleData }) {
-  if (data.errors.performance) {
-    return <ErrorState endpoint={data.endpoints.performance} message={data.errors.performance} onRetry={data.reload} />;
-  }
-  if (data.loading.performance && !data.performances.length) return <Skeleton lines={6} />;
+  const blocked = gate(data, "performance");
+  if (blocked) return blocked;
   if (!data.performances.length) return <EmptyState>No agent series yet.</EmptyState>;
 
   return (
@@ -82,10 +78,8 @@ export function InventoryCurve({ data }: { data: ModuleData }) {
 }
 
 export function MarketChart({ data }: { data: ModuleData }) {
-  if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
-  }
-  if (data.loading.comparison && !data.comparison) return <Skeleton lines={6} />;
+  const blocked = gate(data, "comparison");
+  if (blocked) return blocked;
   const market = data.comparison?.market ?? [];
   if (!market.length) return <EmptyState>No market series yet.</EmptyState>;
 
@@ -120,10 +114,8 @@ export function MarketChart({ data }: { data: ModuleData }) {
 }
 
 export function AgentMatrix({ data }: { data: ModuleData }) {
-  if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
-  }
-  if (data.loading.comparison && !data.comparison) return <Skeleton lines={6} />;
+  const blocked = gate(data, "comparison");
+  if (blocked) return blocked;
   const rows = data.comparison?.rows ?? [];
   if (!rows.length) return <EmptyState>No results yet — run the simulation.</EmptyState>;
 

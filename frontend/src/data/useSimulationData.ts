@@ -14,6 +14,24 @@ import type {
 } from "../api/types";
 import type { DataDep, ModuleData } from "../modules/types";
 
+const DEPS = [
+  "simulation",
+  "comparison",
+  "performance",
+  "book",
+  "surface",
+  "microstructure",
+  "latency",
+  "greeks",
+  "microprice",
+] as const satisfies readonly DataDep[];
+
+/** Everything downstream of the run itself, settled together when a run is incomplete. */
+const DERIVED = DEPS.filter((dep) => dep !== "simulation");
+
+const allLoading = (value: boolean) =>
+  Object.fromEntries(DEPS.map((dep) => [dep, value])) as Record<DataDep, boolean>;
+
 /** The shell owns every fetch. */
 export function useSimulationData(id: string): ModuleData {
   const [simulation, setSimulation] = useState<Simulation | null>(null);
@@ -28,17 +46,7 @@ export function useSimulationData(id: string): ModuleData {
   const [step, setStep] = useState(0);
   const [nonce, setNonce] = useState(0);
 
-  const [loading, setLoading] = useState<Record<DataDep, boolean>>({
-    simulation: true,
-    comparison: true,
-    performance: true,
-    book: true,
-    surface: true,
-    microstructure: true,
-    latency: true,
-    greeks: true,
-    microprice: true,
-  });
+  const [loading, setLoading] = useState<Record<DataDep, boolean>>(() => allLoading(true));
   const [errors, setErrors] = useState<Partial<Record<DataDep, string>>>({});
 
   const mark = useCallback((dep: DataDep, value: boolean) => {
@@ -55,6 +63,10 @@ export function useSimulationData(id: string): ModuleData {
     let cancelled = false;
 
     async function load() {
+      // A reload is a fresh attempt at everything, so last attempt's errors go first.
+      // Without this a Retry that succeeds still leaves the panel showing the old failure.
+      setErrors({});
+      setLoading(allLoading(true));
       try {
         const sim = await api.getSimulation(id);
         if (cancelled) return;
@@ -64,77 +76,34 @@ export function useSimulationData(id: string): ModuleData {
 
         if (sim.status !== "COMPLETED") {
           // Nothing downstream exists yet; say so rather than leaving every panel spinning forever.
-          (
-            [
-              "comparison",
-              "performance",
-              "book",
-              "surface",
-              "microstructure",
-              "latency",
-              "greeks",
-              "microprice",
-            ] as DataDep[]
-          ).forEach((dep) => mark(dep, false));
+          DERIVED.forEach((dep) => mark(dep, false));
           return;
         }
 
-        void api
-          .comparison(id)
-          .then((c) => !cancelled && setComparison(c))
-          .catch((e) => !cancelled && fail("comparison", e))
-          .finally(() => !cancelled && mark("comparison", false));
+        // Each dependency: settle it, record a named error if it fails, clear its spinner.
+        const run = <T,>(dep: DataDep, promise: Promise<T>, apply: (value: T) => void) => {
+          void promise
+            .then((value) => !cancelled && apply(value))
+            .catch((error) => !cancelled && fail(dep, error))
+            .finally(() => !cancelled && mark(dep, false));
+        };
 
-        void Promise.all(sim.agents.map((a) => api.agentPerformance(id, a.id)))
-          .then((p) => !cancelled && setPerformances(p))
-          .catch((e) => !cancelled && fail("performance", e))
-          .finally(() => !cancelled && mark("performance", false));
-
-        void api
-          .liquiditySurface(id, 40)
-          .then((s) => !cancelled && setSurface(s))
-          .catch((e) => !cancelled && fail("surface", e))
-          .finally(() => !cancelled && mark("surface", false));
-
-        void api
-          .microstructure(id)
-          .then((m) => !cancelled && setMicrostructure(m))
-          .catch((e) => !cancelled && fail("microstructure", e))
-          .finally(() => !cancelled && mark("microstructure", false));
-
-        void api
-          .latencyRaces(id)
-          .then((l) => !cancelled && setLatency(l))
-          .catch((e) => !cancelled && fail("latency", e))
-          .finally(() => !cancelled && mark("latency", false));
-
+        run("comparison", api.comparison(id), setComparison);
+        run(
+          "performance",
+          Promise.all(sim.agents.map((a) => api.agentPerformance(id, a.id))),
+          setPerformances,
+        );
+        run("surface", api.liquiditySurface(id, 40), setSurface);
+        run("microstructure", api.microstructure(id), setMicrostructure);
+        run("latency", api.latencyRaces(id), setLatency);
         // A run with no options maker has nothing to attribute, and the API says so with a 409.
-        void optional(api.greeksAttribution(id))
-          .then((g) => !cancelled && setGreeks(g))
-          .catch((e) => !cancelled && fail("greeks", e))
-          .finally(() => !cancelled && mark("greeks", false));
-
-        void api
-          .microprice(id, 2)
-          .then((m) => !cancelled && setMicroprice(m))
-          .catch((e) => !cancelled && fail("microprice", e))
-          .finally(() => !cancelled && mark("microprice", false));
+        run("greeks", optional(api.greeksAttribution(id)), setGreeks);
+        run("microprice", api.microprice(id, 2), setMicroprice);
       } catch (error) {
         if (!cancelled) {
           fail("simulation", error);
-          (
-            [
-              "simulation",
-              "comparison",
-              "performance",
-              "book",
-              "surface",
-              "microstructure",
-              "latency",
-              "greeks",
-              "microprice",
-            ] as DataDep[]
-          ).forEach((dep) => mark(dep, false));
+          setLoading(allLoading(false));
         }
       }
     }
@@ -150,6 +119,7 @@ export function useSimulationData(id: string): ModuleData {
     if (!simulation || simulation.status !== "COMPLETED" || !step) return;
     let cancelled = false;
     mark("book", true);
+    setErrors((prev) => ({ ...prev, book: undefined }));
     api
       .orderBook(id, step, 12)
       .then((snapshot) => !cancelled && setBook(snapshot))

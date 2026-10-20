@@ -5,7 +5,7 @@ import * as THREE from "three";
 
 import type { LiquiditySurface } from "../api/types";
 import type { ModuleData } from "./types";
-import { AxisNote, Button, EmptyState, ErrorState, Skeleton } from "../design/primitives";
+import { AxisNote, Button, EmptyState, gate } from "../design/primitives";
 import { BookHeatmap } from "./BookHeatmap";
 
 /** The order book as terrain: price x time x resting quantity. */
@@ -181,10 +181,8 @@ export default function LiquiditySurface3D({ data }: { data: ModuleData }) {
       window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
 
-  if (data.errors.surface) {
-    return <ErrorState endpoint={data.endpoints.surface} message={data.errors.surface} onRetry={data.reload} />;
-  }
-  if (data.loading.surface && !data.surface) return <Skeleton lines={8} />;
+  const blocked = gate(data, "surface", 8);
+  if (blocked) return blocked;
   const surface = data.surface;
   if (!surface || surface.steps.length < 2) {
     return <EmptyState>Not enough book history to build a surface.</EmptyState>;

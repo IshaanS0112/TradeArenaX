@@ -1,13 +1,11 @@
 import type { ModuleData } from "./types";
-import { AxisNote, EmptyState, ErrorState, Skeleton } from "../design/primitives";
+import { AxisNote, EmptyState, gate } from "../design/primitives";
 import { num } from "../components/format";
 
 /** Cumulative depth either side of the touch. */
 export function DepthChart({ data }: { data: ModuleData }) {
-  if (data.errors.book) {
-    return <ErrorState endpoint={data.endpoints.book} message={data.errors.book} onRetry={data.reload} />;
-  }
-  if (data.loading.book && !data.book) return <Skeleton lines={6} />;
+  const blocked = gate(data, "book");
+  if (blocked) return blocked;
   const book = data.book;
   if (!book || (!book.bids.length && !book.asks.length)) {
     return <EmptyState>No resting liquidity at step {data.step}.</EmptyState>;

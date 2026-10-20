@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react";
 
+import type { DataDep, ModuleData } from "../modules/types";
+
 export function Stat({
   label,
   value,
@@ -146,4 +148,26 @@ export function ErrorState({
 /** A labelled axis caption. */
 export function AxisNote({ children }: { children: ReactNode }) {
   return <p className="mt-2 text-2xs text-muted">{children}</p>;
+}
+
+function hasArrived(data: ModuleData, dep: DataDep): boolean {
+  // `performance` is the one dependency held as a list rather than as a nullable object.
+  const value = dep === "performance" ? data.performances : data[dep];
+  return Array.isArray(value) ? value.length > 0 : value !== null;
+}
+
+/**
+ * The guard every panel opens with: a named error, then a skeleton while the first
+ * fetch is still out. Returns what to render instead of the panel, or null to carry on.
+ *
+ * Worth a helper rather than four lines per module because it is the thing that has to
+ * stay in step across twelve call sites — adding Retry to ErrorState meant editing all
+ * of them, and the next change to the contract would have meant the same again.
+ */
+export function gate(data: ModuleData, dep: DataDep, lines = 6): ReactNode | null {
+  const message = data.errors[dep];
+  if (message) {
+    return <ErrorState endpoint={data.endpoints[dep]} message={message} onRetry={data.reload} />;
+  }
+  return data.loading[dep] && !hasArrived(data, dep) ? <Skeleton lines={lines} /> : null;
 }

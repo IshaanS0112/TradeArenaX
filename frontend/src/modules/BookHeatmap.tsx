@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import type { ModuleData } from "./types";
-import { AxisNote, EmptyState, ErrorState, Skeleton } from "../design/primitives";
+import { AxisNote, EmptyState, gate } from "../design/primitives";
 
 /** Resting depth over time, drawn on a canvas. */
 export function BookHeatmap({ data }: { data: ModuleData }) {
@@ -51,10 +51,8 @@ export function BookHeatmap({ data }: { data: ModuleData }) {
     context.putImageData(image, 0, 0);
   }, [surface]);
 
-  if (data.errors.surface) {
-    return <ErrorState endpoint={data.endpoints.surface} message={data.errors.surface} onRetry={data.reload} />;
-  }
-  if (data.loading.surface && !surface) return <Skeleton lines={7} />;
+  const blocked = gate(data, "surface", 7);
+  if (blocked) return blocked;
   if (!surface || !surface.steps.length) {
     return <EmptyState>No book history for this run yet.</EmptyState>;
   }

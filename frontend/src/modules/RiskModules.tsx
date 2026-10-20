@@ -1,13 +1,11 @@
 import type { ModuleData } from "./types";
-import { EmptyState, ErrorState, Skeleton, Stat, Tag } from "../design/primitives";
+import { EmptyState, Stat, Tag, gate } from "../design/primitives";
 import { num } from "../components/format";
 
 /** The invariant, shown rather than claimed. */
 export function ConservationCheck({ data }: { data: ModuleData }) {
-  if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
-  }
-  if (data.loading.comparison && !data.comparison) return <Skeleton lines={5} />;
+  const blocked = gate(data, "comparison", 5);
+  if (blocked) return blocked;
   const comparison = data.comparison;
   const summary = data.simulation?.run_summary as
     | { steps_with_no_two_sided_book?: number; realized_volatility?: number | null; configured_volatility?: number }
@@ -59,10 +57,8 @@ export function ConservationCheck({ data }: { data: ModuleData }) {
 
 /** Step-by-step tape: the debugging view, and the one that makes a shock concrete — spread. */
 export function MarketTape({ data }: { data: ModuleData }) {
-  if (data.errors.comparison) {
-    return <ErrorState endpoint={data.endpoints.comparison} message={data.errors.comparison} onRetry={data.reload} />;
-  }
-  if (data.loading.comparison && !data.comparison) return <Skeleton lines={8} />;
+  const blocked = gate(data, "comparison", 8);
+  if (blocked) return blocked;
   const market = data.comparison?.market ?? [];
   if (!market.length) return <EmptyState>No steps recorded yet.</EmptyState>;
 
