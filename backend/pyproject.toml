@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradearenax"
+version = "0.3.0"
+description = "Event-driven market microstructure simulator: limit order book, per-agent latency, adverse-selection measurement and backtest-overfitting statistics."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Ishaan Singh" }]
+keywords = ["market-microstructure", "limit-order-book", "market-making", "backtesting", "quantitative-finance"]
+
+# What `app.sdk` actually reaches, measured rather than guessed: NumPy for the
+# maths and pydantic for the settings object the engine reads its constants
+# from. The web stack and the database driver are extras, so a notebook gets
+# the simulator without FastAPI, SQLAlchemy or Postgres anywhere near it.
+dependencies = [
+  "numpy>=1.26",
+  "pydantic>=2.10",
+  "pydantic-settings>=2.7",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+server = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "sqlalchemy==2.0.36",
+  "alembic==1.14.0",
+]
+postgres = ["psycopg2-binary>=2.9"]
+frames = ["pandas>=2.0"]
+
+[project.urls]
+Homepage = "https://github.com/IshaanS0112/TradeArenaX"
+Documentation = "https://github.com/IshaanS0112/TradeArenaX/blob/main/docs/product-and-technical-spec.md"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["py.typed"]

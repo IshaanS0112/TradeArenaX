@@ -15,11 +15,12 @@ from app.models import AgentPerformance, Order, Simulation, SimulationStep, Trad
 from app.services.agents import build_agent
 from app.services.event_engine import EventDrivenEngine
 from app.services.latency import STEP_DURATION_US, LatencyProfile
-from app.services.microstructure import (
-    DEFAULT_HORIZONS,
-    aggregate,
-    measure_trades,
-    summarise_by_agent,
+from app.services.microstructure import measure_trades
+from app.services.reporting import (
+    build_run_summary,
+    greeks_summary,
+    microstructure_summary,
+    pnl_conservation_residual,
 )
 from app.services.simulation_engine import (
     SimulationResult,
@@ -105,54 +106,11 @@ def run_simulation(
     simulation.run_summary = build_run_summary(simulation.id, result, names)
     simulation.run_summary["latency"] = engine.latency_summary()
     simulation.run_summary["latency_races"] = [r.as_dict() for r in engine.races]
-    simulation.run_summary["microstructure"] = _microstructure_summary(result, settings)
-    simulation.run_summary["greeks"] = _greeks_summary(result)
+    simulation.run_summary["microstructure"] = microstructure_summary(result, settings)
+    simulation.run_summary["greeks"] = greeks_summary(result)
 
     db.commit()
     return result, names
-
-
-def build_run_summary(
-    simulation_id: str, result: SimulationResult, names: dict[str, str]
-) -> dict[str, Any]:
-    final_mid = result.step_records[-1].mid_price if result.step_records else None
-    return {
-        "simulation_id": simulation_id,
-        "steps_run": result.steps_run,
-        "total_trades": len(result.fills),
-        "total_orders": len(result.orders),
-        "configured_volatility": result.configured_volatility,
-        "realized_volatility": result.realized_volatility,
-        "steps_with_no_two_sided_book": result.steps_with_no_two_sided_book,
-        "final_reference_price": result.reference_path[-1],
-        "final_mid_price": final_mid,
-        "warnings": result.warnings,
-        "pnl_conservation_residual": pnl_conservation_residual(result),
-        "total_fees_collected": sum(s.fees_paid for s in result.summaries.values()),
-        "agent_metrics": {
-            agent_id: {"name": names.get(agent_id, agent_id), **summary.as_dict()}
-            for agent_id, summary in result.summaries.items()
-        },
-    }
-
-
-def _greeks_summary(result: SimulationResult) -> dict[str, Any]:
-    """Attribution for every options maker in the run, if there are any."""
-    from app.services.agents.options_maker import OptionsMarketMakerAgent
-
-    out: dict[str, Any] = {}
-    for agent_id, state in result.agent_states.items():
-        agent = state.agent
-        if isinstance(agent, OptionsMarketMakerAgent):
-            out[agent_id] = agent.attribution()
-    return out
-
-
-def pnl_conservation_residual(result: SimulationResult) -> float:
-    """Sum of all agents' total PnL, which must be -(fees) in a closed system."""
-    total = sum(s.total_pnl for s in result.summaries.values())
-    fees = sum(s.fees_paid for s in result.summaries.values())
-    return total + fees
 
 
 def _clear_previous_results(db: Session, simulation_id: str) -> None:
@@ -221,21 +179,6 @@ def _persist_trades(
         )
     if rows:
         db.bulk_insert_mappings(Trade, rows)
-
-
-def _microstructure_summary(result: SimulationResult, settings: Settings) -> dict[str, Any]:
-    """Spread decomposition at every reported horizon, market-wide and per agent."""
-    mids = [rec.mid_price for rec in result.step_records]
-    horizons = tuple(sorted({*DEFAULT_HORIZONS, settings.spread_horizon_steps}))
-    measures = measure_trades(result.fills, mids, settings.tick_size, horizons=horizons)
-    return {
-        "horizons": list(horizons),
-        "default_horizon_steps": settings.spread_horizon_steps,
-        "market": {str(h): aggregate(measures, h) for h in horizons},
-        "by_agent": {
-            str(h): [s.as_dict() for s in summarise_by_agent(measures, h)] for h in horizons
-        },
-    }
 
 
 def _persist_steps(

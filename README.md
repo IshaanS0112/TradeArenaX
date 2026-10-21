@@ -5,7 +5,7 @@
 
 <p align="center">
   <a href="https://github.com/IshaanS0112/TradeArenaX/actions/workflows/ci.yml"><img src="https://github.com/IshaanS0112/TradeArenaX/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <img src="https://img.shields.io/badge/tests-540%20passing-26d07c" alt="540 tests">
+  <img src="https://img.shields.io/badge/tests-555%20passing-26d07c" alt="555 tests">
   <img src="https://img.shields.io/badge/python-3.12-38bdf8?logo=python&logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/react-18-38bdf8?logo=react&logoColor=white" alt="React 18">
   <img src="https://img.shields.io/badge/FastAPI-0.115-26d07c?logo=fastapi&logoColor=white" alt="FastAPI">
@@ -27,18 +27,52 @@
 
 ## What it measures
 
-Every number below is from the run pictured above, and every one is pinned by a test — not a claim in a README.
+Every number in the first three rows comes from one command, so you can check them rather than take them:
 
-| Question | Answer in this run | Pinned by |
+```bash
+cd backend && python scripts/benchmark.py
+```
+
+| Question | Answer, seed 42 | Pinned by |
 |---|---|---|
-| How much of the spread did the maker **keep**? | `12.40 bps` quoted → `11.21 bps` kept, `1.18 bps` lost to informed flow | [`test_microstructure.py`](backend/tests/test_microstructure.py) |
-| What did **being slow** cost? | `156` fills where the maker's cancel was still on the wire; worst was `1.8 ms` late | [`test_event_engine.py`](backend/tests/test_event_engine.py) |
-| Did any money appear from nowhere? | `Σ PnL + fees = −5.7e-14` across all 5 desks | [`test_simulation_engine.py`](backend/tests/test_simulation_engine.py) |
-| Is the **microprice** a better fair value than the mid? | **No** — RMSE `0.173` vs `0.163`. The mid wins here, and the project says so | [`test_microprice.py`](backend/tests/test_microprice.py) |
+| How much of the spread did the maker **keep**? | `17.63 bps` quoted → `27.08 bps` kept, `−9.45 bps` impact | [`test_microstructure.py`](backend/tests/test_microstructure.py) |
+| What did **being slow** cost? | `154` fills where the maker's cancel was still on the wire; worst was `1.8 ms` late | [`test_event_engine.py`](backend/tests/test_event_engine.py) |
+| Did any money appear from nowhere? | `Σ PnL + fees = 1.9e-10` across all 5 desks | [`test_simulation_engine.py`](backend/tests/test_simulation_engine.py) |
+| Is the **microprice** a better fair value than the mid? | **No** — RMSE `0.173` vs `0.163` for the pictured run. The mid wins here, and the project says so | [`test_microprice.py`](backend/tests/test_microprice.py) |
 | Is a good backtest result **real or luck**? | Deflated Sharpe + Probability of Backtest Overfitting over the parameter grid | [`test_statistics.py`](backend/tests/test_statistics.py) |
 | Does adding latency change the physics? | At zero latency the event engine reproduces the step loop **exactly**, 300 steps, shock included | [`test_event_engine.py`](backend/tests/test_event_engine.py) |
 
-That fourth row is the point of the project. A tool that only confirms what it was built to confirm is not measuring anything.
+Two of those are worth reading twice. **Impact is negative** in this draw — the price moved *towards* the maker after its fills, so it kept more than it quoted. That is the opposite of adverse selection and it is what the decomposition is for: the sign is measured, not assumed. And the microprice row is a **no**. A tool that only confirms what it was built to confirm is not measuring anything.
+
+## Use it from a notebook
+
+The engine has no database dependency, so the simulator installs without the web stack:
+
+```bash
+pip install -e backend          # numpy + pydantic, no FastAPI, no Postgres
+```
+
+```python
+from app.sdk import Desk, Shock, simulate
+
+run = simulate(
+    steps=1000,
+    seed=42,
+    shocks=[Shock(step=500, pct=-8.0)],
+    agents=[
+        Desk("mm", "MARKET_MAKER", latency_out_us=1200, latency_jitter_us=300),
+        Desk("flow", "NOISE_TRADER", activity=0.5, latency_out_us=400),
+    ],
+)
+
+run.summary["total_trades"]   # 896
+run.conservation              # 1.9e-10 — the invariant, on every run
+run.spread()                  # effective = realised + impact, per desk
+run.races()                   # fills that beat their own maker's cancel
+run.frame("agents")           # pandas, with the frames extra
+```
+
+Every number there comes from the same functions the HTTP layer calls, so a notebook and the API cannot disagree about the same run. A test asserts importing the SDK pulls in no ORM, no SQLAlchemy and no database driver.
 
 ## Quick start
 
