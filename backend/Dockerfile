@@ -19,6 +19,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+# The app runs Alembic migrations on startup, so the migration scripts and
+# their config have to be in the image next to app/.
+COPY alembic ./alembic
+COPY alembic.ini .
 COPY scripts ./scripts
 
 RUN useradd --create-home --uid 1000 trade && chown -R trade:trade /app
